@@ -8,7 +8,8 @@ services:
       dockerfile: Dockerfile
     container_name: maptoposter
     restart: unless-stopped
-    user: "99:100"
+    # Default on Unraid: run without a fixed user so fresh appdata folders stay writable.
+    # Optional: use `user: "99:100"` only after preparing the mounted folders with matching permissions.
     ports:
       - "6641:8000"
     environment:

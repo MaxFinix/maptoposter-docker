@@ -14,6 +14,14 @@ import requests
 
 BASE_DIR = Path(__file__).resolve().parent
 LOCAL_FONTS_DIR = BASE_DIR / "fonts"
+UNRAID_PERMISSION_HINT = (
+    'On Unraid, remove `user: "99:100"` from compose.yaml or prepare the mounted '
+    "folders with write access for UID 99 / GID 100."
+)
+
+
+class FontLoadError(RuntimeError):
+    """Raised when a requested font cannot be cached safely."""
 
 
 def _path_from_env(name: str, default: Path) -> Path:
@@ -44,7 +52,13 @@ def download_google_font(
     if weights is None:
         weights = [300, 400, 700]
 
-    FONTS_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    try:
+        FONTS_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise FontLoadError(
+            f"Font cache path '{FONTS_CACHE_DIR}' is not writable. {UNRAID_PERMISSION_HINT}"
+        ) from exc
+
     font_name_safe = font_family.replace(" ", "_").lower()
     font_files: dict[str, str] = {}
 
@@ -95,6 +109,11 @@ def download_google_font(
                     font_response = requests.get(weight_url, timeout=10)
                     font_response.raise_for_status()
                     font_path.write_bytes(font_response.content)
+                except OSError as exc:
+                    raise FontLoadError(
+                        f"Font cache path '{FONTS_CACHE_DIR}' is not writable. "
+                        f"Failed while saving '{font_filename}'. {UNRAID_PERMISSION_HINT}"
+                    ) from exc
                 except Exception as exc:
                     print(f"  Failed to download {weight_key}: {exc}")
                     continue
@@ -116,6 +135,8 @@ def download_google_font(
             print("  Using regular weight as light")
 
         return font_files if font_files else None
+    except FontLoadError:
+        raise
     except Exception as exc:
         print(f"Error downloading Google Font '{font_family}': {exc}")
         return None

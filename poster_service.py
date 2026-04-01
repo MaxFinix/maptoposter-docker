@@ -47,11 +47,15 @@ from networkx import MultiDiGraph
 from shapely.geometry import Point
 from tqdm import tqdm
 
-from font_management import load_fonts
+from font_management import FONTS_CACHE_DIR, FontLoadError, load_fonts
 
 
 class CacheError(Exception):
     """Raised when a cache operation fails."""
+
+
+class RuntimePathError(ValueError):
+    """Raised when required runtime paths are not writable."""
 
 
 @dataclass(frozen=True)
@@ -80,13 +84,51 @@ DEFAULT_CACHE_DIR = BASE_DIR / "cache"
 VALID_OUTPUT_FORMATS = {"png", "svg", "pdf"}
 MAX_DIMENSION_INCHES = 20.0
 GENERATION_LOCK = threading.Lock()
+UNRAID_PERMISSION_HINT = (
+    'On Unraid, remove `user: "99:100"` from compose.yaml or pre-create the '
+    "mounted folders with write access for UID 99 / GID 100."
+)
 
 
 CACHE_DIR = _path_from_env("CACHE_DIR", DEFAULT_CACHE_DIR)
 POSTERS_DIR = _path_from_env("POSTERS_DIR", DEFAULT_POSTERS_DIR)
-CACHE_DIR.mkdir(parents=True, exist_ok=True)
-POSTERS_DIR.mkdir(parents=True, exist_ok=True)
-Path(os.environ["MPLCONFIGDIR"]).mkdir(parents=True, exist_ok=True)
+
+
+def _runtime_paths() -> dict[str, Path]:
+    return {
+        "Poster output": POSTERS_DIR,
+        "Cache": CACHE_DIR,
+        "Font cache": FONTS_CACHE_DIR,
+        "Matplotlib cache": Path(os.environ["MPLCONFIGDIR"]),
+    }
+
+
+def ensure_runtime_paths_writable() -> dict[str, Path]:
+    checked_paths = _runtime_paths()
+
+    for label, path in checked_paths.items():
+        try:
+            path.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            raise RuntimePathError(
+                f"{label} path '{path}' cannot be created or is not writable. "
+                f"{UNRAID_PERMISSION_HINT}"
+            ) from exc
+
+        probe = path / f".write-test-{os.getpid()}-{threading.get_ident()}"
+        try:
+            probe.write_text("ok", encoding="utf-8")
+        except OSError as exc:
+            raise RuntimePathError(
+                f"{label} path '{path}' is not writable. {UNRAID_PERMISSION_HINT}"
+            ) from exc
+        finally:
+            try:
+                probe.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+    return checked_paths
 
 
 def _cache_path(key: str) -> Path:
@@ -702,7 +744,11 @@ def create_poster(
 
 
 def resolve_fonts(font_family: str | None) -> dict[str, str] | None:
-    fonts = load_fonts(font_family)
+    try:
+        fonts = load_fonts(font_family)
+    except FontLoadError as exc:
+        raise ValueError(str(exc)) from exc
+
     if fonts is None and font_family:
         print(f"Falling back to local Roboto fonts after failing to load '{font_family}'.")
         return load_fonts()
@@ -716,6 +762,7 @@ def resolve_coordinates(options: PosterOptions) -> tuple[float, float]:
 
 
 def generate_posters(options: PosterOptions) -> list[Path]:
+    ensure_runtime_paths_writable()
     normalized = normalize_options(options)
     available_themes = get_available_themes()
     if not available_themes:

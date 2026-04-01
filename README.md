@@ -143,6 +143,18 @@ This keeps generated files in the normal Docker storage area on Unraid while sti
 This setup assumes your Unraid Compose environment supports Git URLs as Docker build contexts.
 If your specific Unraid installation does not support that, the next clean fallback is using a prebuilt image from a registry such as GHCR.
 
+### Troubleshooting on Unraid
+
+If you see errors like `Permission denied: /app/data/cache/...`, the most common cause is a fixed runtime user combined with fresh host folders under `appdata`.
+
+- The default stack now runs without a fixed `user`, which is the most reliable setup for a fresh Unraid deploy.
+- If you explicitly want `user: "99:100"`, prepare these folders on the host first so UID 99 and GID 100 can write to them:
+  - `/mnt/user/appdata/maptoposter/posters`
+  - `/mnt/user/appdata/maptoposter/cache`
+  - `/mnt/user/appdata/maptoposter/fonts-cache`
+- The app now performs a startup writable-check for poster output, cache, font cache and Matplotlib cache directories. If one of them is not writable, the container will fail fast with a clear error message instead of only logging a later write failure.
+- `GET /generate 405 Method Not Allowed` used to happen because generation only supported `POST /generate`. The app now redirects `GET /generate` back to `/`, and successful poster creation also redirects back to `/`, so browser refreshes no longer land on a non-supported method route.
+
 ## Usage
 
 ### Generate Poster

@@ -4,17 +4,20 @@ FastAPI application for generating and downloading map posters.
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 import os
 from pathlib import Path
+from urllib.parse import urlencode
 
 from fastapi import FastAPI, Form, Request
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException
 
 from poster_service import (
     PosterOptions,
+    ensure_runtime_paths_writable,
     generate_posters,
     get_safe_poster_path,
     get_theme_catalog,
@@ -25,7 +28,22 @@ from poster_service import (
 
 BASE_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
-app = FastAPI(title="MaptoPoster", version="0.3.0")
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    try:
+        checked_paths = ensure_runtime_paths_writable()
+    except Exception as exc:
+        print(f"Startup check failed: {exc}", flush=True)
+        raise
+
+    for label, path in checked_paths.items():
+        print(f"Startup check OK: {label} -> {path}", flush=True)
+    yield
+
+
+app = FastAPI(title="MaptoPoster", version="0.3.0", lifespan=lifespan)
 
 
 def build_form_data(overrides: dict[str, str] | None = None) -> dict[str, str]:
@@ -84,9 +102,34 @@ def render_index(
     return templates.TemplateResponse("index.html", context)
 
 
+def redirect_to_index(
+    request: Request, *, message: str | None = None, error: str | None = None
+) -> RedirectResponse:
+    query: dict[str, str] = {}
+    if message:
+        query["message"] = message
+    if error:
+        query["error"] = error
+
+    url = str(request.url_for("index"))
+    if query:
+        url = f"{url}?{urlencode(query)}"
+
+    return RedirectResponse(url=url, status_code=303)
+
+
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request) -> HTMLResponse:
-    return render_index(request)
+    return render_index(
+        request,
+        message=request.query_params.get("message"),
+        error=request.query_params.get("error"),
+    )
+
+
+@app.get("/generate")
+async def generate_redirect(request: Request) -> RedirectResponse:
+    return redirect_to_index(request)
 
 
 @app.post("/generate", response_class=HTMLResponse)
@@ -106,26 +149,7 @@ async def generate(
     display_country: str = Form(""),
     font_family: str = Form(""),
     all_themes: str = Form(""),
-) -> HTMLResponse:
-    form_data = build_form_data(
-        {
-            "city": city,
-            "country": country,
-            "theme": theme,
-            "distance": distance,
-            "width": width,
-            "height": height,
-            "format": output_format,
-            "latitude": latitude,
-            "longitude": longitude,
-            "country_label": country_label,
-            "display_city": display_city,
-            "display_country": display_country,
-            "font_family": font_family,
-            "all_themes": all_themes,
-        }
-    )
-
+) -> RedirectResponse:
     try:
         options = PosterOptions(
             city=city,
@@ -145,20 +169,12 @@ async def generate(
         )
         generated = await run_in_threadpool(generate_posters, options)
     except ValueError as exc:
-        return render_index(request, error=str(exc), form_data=form_data)
+        return redirect_to_index(request, error=str(exc))
     except Exception as exc:
-        return render_index(
-            request,
-            error=f"Poster generation failed: {exc}",
-            form_data=form_data,
-        )
+        return redirect_to_index(request, error=f"Poster generation failed: {exc}")
 
     names = ", ".join(path.name for path in generated)
-    return render_index(
-        request,
-        message=f"Created {len(generated)} file(s): {names}",
-        form_data=form_data,
-    )
+    return redirect_to_index(request, message=f"Created {len(generated)} file(s): {names}")
 
 
 @app.get("/download/{filename}")
