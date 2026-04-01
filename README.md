@@ -79,14 +79,52 @@ All three can be overridden with environment variables:
 ## Docker on Unraid
 
 The repository includes a `compose.yaml` and `Dockerfile` for running the app as a single local container on Unraid.
+The default `compose.yaml` is set up to build directly from the public GitHub repository, so you don't need to clone the repo manually on Unraid first.
 
-### Start with Docker Compose
+### Use in the Unraid Compose Tool
+
+1. Create a new stack in the Unraid Compose Tool.
+2. Paste the contents of `compose.yaml`.
+3. Deploy the stack.
+
+The default web interface will be available at `http://<unraid-ip>:8787`.
+
+### Repo link location
+
+If you want to use your own fork or another branch, change only this line in `compose.yaml`:
+
+```yaml
+services:
+  maptoposter:
+    build:
+      context: https://github.com/MaxFinix/maptoposter-docker.git#main
+```
+
+The GitHub repo link goes into `services.maptoposter.build.context`.
+
+- Repo URL format: `https://github.com/<user>/<repo>.git#<branch>`
+- Current default: `https://github.com/MaxFinix/maptoposter-docker.git#main`
+- If your branch is not `main`, only change the part after `#`
+
+### Example for your current repo
+
+```bash
+https://github.com/MaxFinix/maptoposter-docker.git#main
+```
+
+### Generic example for your own repo
+
+```bash
+https://github.com/<user>/<repo>.git#<branch>
+```
+
+### Local Docker Compose start
+
+If you do want to run the same stack outside of Unraid on a machine with Docker Compose:
 
 ```bash
 docker compose up --build -d
 ```
-
-The default web interface will be available at `http://<unraid-ip>:8787`.
 
 ### Unraid bind mounts
 
@@ -99,6 +137,11 @@ The provided compose file stores persistent data in the Unraid `appdata` share:
 ```
 
 This keeps generated files in the normal Docker storage area on Unraid while still making them easy to access and download.
+
+### Compatibility note
+
+This setup assumes your Unraid Compose environment supports Git URLs as Docker build contexts.
+If your specific Unraid installation does not support that, the next clean fallback is using a prebuilt image from a registry such as GHCR.
 
 ## Usage
 

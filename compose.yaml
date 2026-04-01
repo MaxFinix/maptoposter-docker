@@ -1,6 +1,11 @@
+name: maptoposter
+
 services:
   maptoposter:
-    build: .
+    build:
+      # Hier deinen eigenen GitHub-Repo-Link eintragen, Format: https://github.com/<user>/<repo>.git#<branch>
+      context: https://github.com/MaxFinix/maptoposter-docker.git#main
+      dockerfile: Dockerfile
     container_name: maptoposter
     restart: unless-stopped
     user: "99:100"
