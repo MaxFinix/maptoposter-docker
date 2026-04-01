@@ -43,6 +43,63 @@ source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
+## Web Interface
+
+The project now includes a small FastAPI web interface in addition to the CLI.
+
+### Run locally
+
+```bash
+python web_app.py
+```
+
+Then open `http://localhost:8000`.
+
+### Features
+
+- Fill out a form to generate posters in the browser
+- Download finished files directly from the UI
+- Reuse cached geodata and downloaded Google Fonts
+- Keep CLI and web output on the same shared generation pipeline
+
+### Persistent directories
+
+By default the app uses these folders:
+
+- `posters/` for generated files
+- `cache/` for map and geocoding cache data
+- `fonts/cache/` for downloaded Google Fonts
+
+All three can be overridden with environment variables:
+
+- `POSTERS_DIR`
+- `CACHE_DIR`
+- `FONTS_CACHE_DIR`
+
+## Docker on Unraid
+
+The repository includes a `compose.yaml` and `Dockerfile` for running the app as a single local container on Unraid.
+
+### Start with Docker Compose
+
+```bash
+docker compose up --build -d
+```
+
+The default web interface will be available at `http://<unraid-ip>:8787`.
+
+### Unraid bind mounts
+
+The provided compose file stores persistent data in the Unraid `appdata` share:
+
+```text
+/mnt/user/appdata/maptoposter/posters
+/mnt/user/appdata/maptoposter/cache
+/mnt/user/appdata/maptoposter/fonts-cache
+```
+
+This keeps generated files in the normal Docker storage area on Unraid while still making them easy to access and download.
+
 ## Usage
 
 ### Generate Poster
@@ -103,7 +160,7 @@ python create_map_poster.py -c "Seoul" -C "South Korea" -dc "서울" -dC "대한
 python create_map_poster.py -c "Dubai" -C "UAE" -dc "دبي" -dC "الإمارات" --font-family "Cairo"
 ```
 
-**Note**: Fonts are automatically downloaded from Google Fonts and cached locally in `fonts/cache/`.
+**Note**: Fonts are automatically downloaded from Google Fonts and cached locally in `fonts/cache/` or the directory set through `FONTS_CACHE_DIR`.
 
 ### Resolution Guide (300 DPI)
 
@@ -259,13 +316,15 @@ Create a JSON file in `themes/` directory:
 
 ```text
 map_poster/
-├── create_map_poster.py    # Main script
+├── create_map_poster.py    # CLI entrypoint
+├── web_app.py              # FastAPI web app
+├── poster_service.py       # Shared generation service
 ├── font_management.py      # Font loading and Google Fonts integration
+├── templates/              # Server-rendered HTML templates
 ├── themes/                 # Theme JSON files
-├── fonts/                  # Font files
-│   ├── Roboto-*.ttf        # Default Roboto fonts
-│   └── cache/              # Downloaded Google Fonts (auto-generated)
-├── posters/                # Generated posters
+├── fonts/                  # Bundled default fonts
+├── compose.yaml            # Unraid-friendly Docker Compose setup
+├── Dockerfile              # Container image definition
 └── README.md
 ```
 
@@ -277,24 +336,33 @@ Quick reference for contributors who want to extend or modify the script.
 ### Contributors Guide
 
 - Bug fixes are welcomed
-- Don't submit user interface (web/desktop)
-- Don't Dockerize for now
 - If you vibe code any fix please test it and see before and after version of poster
 - Before embarking on a big feature please ask in Discussions/Issue if it will be merged
 
 ### Architecture Overview
 
 ```text
-┌─────────────────┐     ┌──────────────┐     ┌─────────────────┐
-│   CLI Parser    │────▶│  Geocoding   │────▶│  Data Fetching  │
-│   (argparse)    │     │  (Nominatim) │     │    (OSMnx)      │
-└─────────────────┘     └──────────────┘     └─────────────────┘
-                                                     │
-                        ┌──────────────┐             ▼
-                        │    Output    │◀────┌─────────────────┐
-                        │  (matplotlib)│     │   Rendering     │
-                        └──────────────┘     │  (matplotlib)   │
-                                             └─────────────────┘
+┌───────────────────┐
+│ CLI / Web UI      │
+│ argparse / FastAPI│
+└─────────┬─────────┘
+          ▼
+┌───────────────────┐
+│ Poster Service    │
+│ option validation │
+│ theme selection   │
+└─────────┬─────────┘
+          ▼
+┌───────────────────┐     ┌───────────────────┐
+│ Geocoding         │────▶│ Data Fetching     │
+│ Nominatim         │     │ OSMnx + cache     │
+└─────────┬─────────┘     └─────────┬─────────┘
+          └──────────────┬──────────┘
+                         ▼
+                ┌───────────────────┐
+                │ Rendering Output  │
+                │ matplotlib        │
+                └───────────────────┘
 ```
 
 ### Key Functions
@@ -302,6 +370,7 @@ Quick reference for contributors who want to extend or modify the script.
 | Function | Purpose | Modify when... |
 |----------|---------|----------------|
 | `get_coordinates()` | City → lat/lon via Nominatim | Switching geocoding provider |
+| `generate_posters()` | Shared entrypoint for CLI and web | Adding new inputs or workflows |
 | `create_poster()` | Main rendering pipeline | Adding new map layers |
 | `get_edge_colors_by_type()` | Road color by OSM highway tag | Changing road styling |
 | `get_edge_widths_by_type()` | Road width by importance | Adjusting line weights |

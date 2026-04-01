@@ -1,0 +1,20 @@
+services:
+  maptoposter:
+    build: .
+    container_name: maptoposter
+    restart: unless-stopped
+    user: "99:100"
+    ports:
+      - "8787:8000"
+    environment:
+      APP_HOST: 0.0.0.0
+      APP_PORT: 8000
+      MPLBACKEND: Agg
+      MPLCONFIGDIR: /app/data/cache/matplotlib
+      POSTERS_DIR: /app/data/posters
+      CACHE_DIR: /app/data/cache
+      FONTS_CACHE_DIR: /app/data/fonts-cache
+    volumes:
+      - /mnt/user/appdata/maptoposter/posters:/app/data/posters
+      - /mnt/user/appdata/maptoposter/cache:/app/data/cache
+      - /mnt/user/appdata/maptoposter/fonts-cache:/app/data/fonts-cache

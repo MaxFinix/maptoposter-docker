@@ -1,4 +1,8 @@
 cache/*
+fonts/cache/*
+posters/*.png
+posters/*.pdf
+posters/*.svg
 
 # Virtual environments
 env/
