@@ -10,7 +10,7 @@ services:
     restart: unless-stopped
     user: "99:100"
     ports:
-      - "8787:8000"
+      - "6641:8000"
     environment:
       APP_HOST: 0.0.0.0
       APP_PORT: 8000

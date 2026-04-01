@@ -87,7 +87,7 @@ The default `compose.yaml` is set up to build directly from the public GitHub re
 2. Paste the contents of `compose.yaml`.
 3. Deploy the stack.
 
-The default web interface will be available at `http://<unraid-ip>:8787`.
+The default web interface will be available at `http://<unraid-ip>:6641`.
 
 ### Repo link location
 
