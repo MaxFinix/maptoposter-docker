@@ -53,7 +53,7 @@ The project now includes a small FastAPI web interface in addition to the CLI.
 python web_app.py
 ```
 
-Then open `http://localhost:8000`.
+Then open `http://localhost:6641`.
 
 ### Features
 
@@ -88,6 +88,7 @@ The default `compose.yaml` is set up to build directly from the public GitHub re
 3. Deploy the stack.
 
 The default web interface will be available at `http://<unraid-ip>:6641`.
+The container also listens internally on `6641/tcp`, so there is no mixed `6641:8000` port setup anymore.
 
 ### Repo link location
 

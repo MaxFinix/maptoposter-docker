@@ -11,10 +11,12 @@ services:
     # Default on Unraid: run without a fixed user so fresh appdata folders stay writable.
     # Optional: use `user: "99:100"` only after preparing the mounted folders with matching permissions.
     ports:
-      - "6641:8000"
+      - target: 6641
+        published: "6641"
+        protocol: tcp
     environment:
       APP_HOST: 0.0.0.0
-      APP_PORT: 8000
+      APP_PORT: 6641
       MPLBACKEND: Agg
       MPLCONFIGDIR: /app/data/cache/matplotlib
       POSTERS_DIR: /app/data/posters
