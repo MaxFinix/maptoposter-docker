@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="{{ lang }}">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>MaptoPoster</title>
+    <title>{{ text.meta.title }}</title>
     <style>
       :root {
         --bg: #efe8da;
@@ -38,6 +38,52 @@
         width: min(1180px, calc(100% - 32px));
         margin: 0 auto;
         padding: 28px 0 40px;
+      }
+
+      .toolbar {
+        display: flex;
+        justify-content: flex-end;
+        margin-bottom: 18px;
+      }
+
+      .language-switch {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        padding: 10px 14px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.72);
+        border: 1px solid var(--line);
+        box-shadow: 0 8px 26px rgba(56, 38, 21, 0.08);
+      }
+
+      .language-label {
+        font-size: 0.86rem;
+        color: var(--muted);
+      }
+
+      .language-link {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 44px;
+        padding: 8px 12px;
+        border-radius: 999px;
+        color: var(--accent-strong);
+        text-decoration: none;
+        font-weight: 700;
+        transition: background 160ms ease, color 160ms ease, transform 160ms ease;
+      }
+
+      .language-link:hover {
+        transform: translateY(-1px);
+        background: rgba(165, 84, 47, 0.08);
+      }
+
+      .language-link.active {
+        color: #fff8f0;
+        background: linear-gradient(135deg, var(--accent) 0%, var(--accent-strong) 100%);
+        box-shadow: 0 10px 20px rgba(111, 49, 22, 0.18);
       }
 
       .hero {
@@ -237,6 +283,10 @@
       .note {
         font-size: 0.88rem;
         color: var(--muted);
+      }
+
+      .field-note {
+        margin-top: -4px;
       }
 
       .flash-stack {
@@ -472,6 +522,15 @@
           padding: 18px;
         }
 
+        .toolbar {
+          justify-content: stretch;
+        }
+
+        .language-switch {
+          width: 100%;
+          justify-content: space-between;
+        }
+
         .actions,
         .action-links {
           flex-direction: column;
@@ -487,34 +546,51 @@
   </head>
   <body>
     <main class="page">
+      <div class="toolbar">
+        <div class="language-switch" aria-label="{{ text.language.label }}">
+          <span class="language-label">{{ text.language.label }}</span>
+          <a
+            class="language-link {% if lang == 'de' %}active{% endif %}"
+            href="{{ language_urls.de }}"
+            hreflang="de"
+            lang="de"
+            title="{{ text.language.de_long }}"
+          >
+            {{ text.language.de }}
+          </a>
+          <a
+            class="language-link {% if lang == 'en' %}active{% endif %}"
+            href="{{ language_urls.en }}"
+            hreflang="en"
+            lang="en"
+            title="{{ text.language.en_long }}"
+          >
+            {{ text.language.en }}
+          </a>
+        </div>
+      </div>
+
       <section class="hero">
         <div class="card">
           <h1 class="hero-title">MaptoPoster</h1>
-          <p class="hero-copy">
-            Generate printable city map artwork in the browser, keep every poster in your Unraid
-            appdata folder, preview the newest result right away, and download finished files
-            without touching the filesystem.
-          </p>
+          <p class="hero-copy">{{ text.hero.copy }}</p>
         </div>
         <div class="card hero-meta">
           <div class="stat">
             <strong>{{ themes|length }}</strong>
-            <span>Available themes from the bundled JSON library.</span>
+            <span>{{ text.hero.themes_stat }}</span>
           </div>
           <div class="stat">
             <strong id="poster-count">{{ posters|length }}</strong>
-            <span>Generated files currently available from the web interface.</span>
+            <span>{{ text.hero.files_stat }}</span>
           </div>
         </div>
       </section>
 
       <section class="layout">
         <section class="panel">
-          <h2>Create Poster</h2>
-          <p>
-            Use city and country for standard geocoding, or override the center point with custom
-            latitude and longitude.
-          </p>
+          <h2>{{ text.form.title }}</h2>
+          <p>{{ text.form.description }}</p>
 
           <div id="flash-container" class="flash-stack">
             {% if message %}
@@ -526,30 +602,31 @@
           </div>
 
           <form id="poster-form" method="post" action="{{ request.url_for('generate') }}">
+            <input type="hidden" name="lang" value="{{ lang }}" />
             <div class="grid">
               <label>
-                City
-                <input name="city" value="{{ form.city }}" placeholder="Paris" required />
+                {{ text.form.city }}
+                <input name="city" value="{{ form.city }}" placeholder="{{ text.form.city_placeholder }}" required />
               </label>
               <label>
-                Country
-                <input name="country" value="{{ form.country }}" placeholder="France" required />
+                {{ text.form.country }}
+                <input name="country" value="{{ form.country }}" placeholder="{{ text.form.country_placeholder }}" required />
               </label>
             </div>
 
             <div class="grid">
               <label>
-                Theme
+                {{ text.form.theme }}
                 <select name="theme">
                   {% for theme in themes %}
                   <option value="{{ theme.name }}" {% if form.theme == theme.name %}selected{% endif %}>
-                    {{ theme.name }}{% if theme.description %} - {{ theme.description }}{% endif %}
+                    {{ theme.display_name }}{% if theme.description %} - {{ theme.description }}{% endif %}
                   </option>
                   {% endfor %}
                 </select>
               </label>
               <label>
-                Format
+                {{ text.form.format }}
                 <select name="format">
                   {% for item in ["png", "svg", "pdf"] %}
                   <option value="{{ item }}" {% if form.format == item %}selected{% endif %}>{{ item|upper }}</option>
@@ -560,56 +637,57 @@
 
             <div class="grid-wide">
               <label>
-                Distance (meters)
-                <input name="distance" value="{{ form.distance }}" placeholder="18000" />
+                {{ text.form.distance }}
+                <input name="distance" value="{{ form.distance }}" placeholder="{{ text.form.distance_placeholder }}" />
               </label>
               <label>
-                Width (inches)
-                <input name="width" value="{{ form.width }}" placeholder="12" />
+                {{ text.form.width }}
+                <input name="width" value="{{ form.width }}" placeholder="{{ text.form.width_placeholder }}" />
               </label>
               <label>
-                Height (inches)
-                <input name="height" value="{{ form.height }}" placeholder="16" />
+                {{ text.form.height }}
+                <input name="height" value="{{ form.height }}" placeholder="{{ text.form.height_placeholder }}" />
+              </label>
+            </div>
+            <span class="note field-note">{{ text.form.size_note }}</span>
+
+            <div class="grid">
+              <label>
+                {{ text.form.latitude }}
+                <input name="latitude" value="{{ form.latitude }}" placeholder="{{ text.form.latitude_placeholder }}" />
+              </label>
+              <label>
+                {{ text.form.longitude }}
+                <input name="longitude" value="{{ form.longitude }}" placeholder="{{ text.form.longitude_placeholder }}" />
               </label>
             </div>
 
             <div class="grid">
               <label>
-                Latitude override
-                <input name="latitude" value="{{ form.latitude }}" placeholder="48.8566" />
+                {{ text.form.display_city }}
+                <input name="display_city" value="{{ form.display_city }}" placeholder="{{ text.form.display_city_placeholder }}" />
               </label>
               <label>
-                Longitude override
-                <input name="longitude" value="{{ form.longitude }}" placeholder="2.3522" />
-              </label>
-            </div>
-
-            <div class="grid">
-              <label>
-                Display city
-                <input name="display_city" value="{{ form.display_city }}" placeholder="PARIS" />
-              </label>
-              <label>
-                Display country
-                <input name="display_country" value="{{ form.display_country }}" placeholder="FRANCE" />
+                {{ text.form.display_country }}
+                <input name="display_country" value="{{ form.display_country }}" placeholder="{{ text.form.display_country_placeholder }}" />
               </label>
             </div>
 
             <div class="grid">
               <label>
-                Country label override
+                {{ text.form.country_label }}
                 <input
                   name="country_label"
                   value="{{ form.country_label }}"
-                  placeholder="Ile-de-France"
+                  placeholder="{{ text.form.country_label_placeholder }}"
                 />
               </label>
               <label>
-                Google font family
+                {{ text.form.font_family }}
                 <input
                   name="font_family"
                   value="{{ form.font_family }}"
-                  placeholder="Noto Sans JP"
+                  placeholder="{{ text.form.font_family_placeholder }}"
                 />
               </label>
             </div>
@@ -620,23 +698,20 @@
                 name="all_themes"
                 {% if form.all_themes == "on" %}checked{% endif %}
               />
-              Generate every available theme for this city
+              {{ text.form.all_themes }}
             </label>
 
             <div class="actions">
-              <button id="generate-button" type="submit">Generate poster</button>
-              <span class="note">Generated files are written into the mounted posters directory.</span>
+              <button id="generate-button" type="submit">{{ text.form.generate }}</button>
+              <span class="note">{{ text.form.storage_note }}</span>
             </div>
 
             <div id="loading-state" class="loading-panel" hidden>
               <div class="spinner" aria-hidden="true"></div>
               <div>
-                <strong>Generating poster...</strong>
-                <div id="loading-elapsed" class="elapsed">0s elapsed</div>
-                <p class="loading-copy">
-                  Please keep this page open. Large cities, network fetches, and all-theme runs can
-                  take a little longer.
-                </p>
+                <strong>{{ text.loading.title }}</strong>
+                <div id="loading-elapsed" class="elapsed">{{ text.loading.initial_elapsed }}</div>
+                <p class="loading-copy">{{ text.loading.note }}</p>
               </div>
             </div>
           </form>
@@ -645,11 +720,8 @@
         <section class="panel">
           <div class="result-block">
             <div>
-              <h2>Latest Result</h2>
-              <p>
-                The newest generated file appears here right away so you can preview it and
-                download it without browsing the filesystem.
-              </p>
+              <h2>{{ text.result.title }}</h2>
+              <p>{{ text.result.description }}</p>
             </div>
 
             <div id="result-panel">
@@ -660,18 +732,18 @@
                   <img src="{{ featured_poster.preview_url }}" alt="{{ featured_poster.name }}" />
                   {% else %}
                   <div class="result-file-card">
-                    <strong>Preview not embedded for this file type.</strong>
-                    <span class="note">Use Open or Download to inspect {{ featured_poster.name }}.</span>
+                    <strong>{{ text.result.preview_unavailable_title }}</strong>
+                    <span class="note">{{ text.result.preview_unavailable_note.format(name=featured_poster.name) }}</span>
                   </div>
                   {% endif %}
                 </div>
                 <div class="result-meta">
-                  <h3>Ready to use</h3>
+                  <h3>{{ text.result.ready }}</h3>
                   <code>{{ featured_poster.name }}</code>
                   <div class="meta-list">
-                    <span>Modified: {{ featured_poster.modified_label }}</span>
-                    <span>Size: {{ featured_poster.size_label }}</span>
-                    <span>Type: {{ featured_poster.suffix|upper|replace(".", "") }}</span>
+                    <span>{{ text.result.modified }}: {{ featured_poster.modified_label }}</span>
+                    <span>{{ text.result.size }}: {{ featured_poster.size_label }}</span>
+                    <span>{{ text.result.type }}: {{ featured_poster.suffix|upper|replace(".", "") }}</span>
                   </div>
                   <div class="action-links">
                     <a
@@ -680,22 +752,20 @@
                       target="_blank"
                       rel="noreferrer"
                     >
-                      Open
+                      {{ text.buttons.open }}
                     </a>
                     <a
                       class="download-link primary"
                       href="{{ featured_poster.download_url }}"
                       download="{{ featured_poster.name }}"
                     >
-                      Download
+                      {{ text.buttons.download }}
                     </a>
                   </div>
                 </div>
               </div>
               {% else %}
-              <div class="empty">
-                Generate a poster to show a large preview and direct download actions here.
-              </div>
+              <div class="empty">{{ text.result.empty }}</div>
               {% endif %}
             </div>
 
@@ -704,11 +774,8 @@
 
           <div class="downloads-block">
             <div>
-              <h2>Downloads</h2>
-              <p>
-                Newest files appear first. Every file can be opened inline or downloaded directly
-                from this page.
-              </p>
+              <h2>{{ text.downloads.title }}</h2>
+              <p>{{ text.downloads.description }}</p>
             </div>
 
             <div id="downloads-container">
@@ -717,10 +784,10 @@
                 <table>
                   <thead>
                     <tr>
-                      <th>File</th>
-                      <th>Modified</th>
-                      <th>Size</th>
-                      <th>Actions</th>
+                      <th>{{ text.downloads.file }}</th>
+                      <th>{{ text.downloads.modified }}</th>
+                      <th>{{ text.downloads.size }}</th>
+                      <th>{{ text.downloads.actions }}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -737,14 +804,14 @@
                             target="_blank"
                             rel="noreferrer"
                           >
-                            Open
+                            {{ text.buttons.open }}
                           </a>
                           <a
                             class="download-link primary"
                             href="{{ poster.download_url }}"
                             download="{{ poster.name }}"
                           >
-                            Download
+                            {{ text.buttons.download }}
                           </a>
                         </div>
                       </td>
@@ -754,9 +821,7 @@
                 </table>
               </div>
               {% else %}
-              <div class="empty">
-                No generated posters yet. Create the first one from the form on the left.
-              </div>
+              <div class="empty">{{ text.downloads.empty }}</div>
               {% endif %}
             </div>
           </div>
@@ -766,6 +831,7 @@
 
     <script>
       (() => {
+        const i18n = {{ js_text | tojson }};
         const form = document.getElementById("poster-form");
         if (!form || !window.fetch || !window.FormData) {
           return;
@@ -808,10 +874,10 @@
           startedAt = Date.now();
           generateButton.disabled = true;
           loadingState.hidden = false;
-          loadingElapsed.textContent = "0s elapsed";
+          loadingElapsed.textContent = i18n.elapsed.replace("{seconds}", "0");
           timerId = window.setInterval(() => {
             const seconds = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
-            loadingElapsed.textContent = `${seconds}s elapsed`;
+            loadingElapsed.textContent = i18n.elapsed.replace("{seconds}", String(seconds));
           }, 1000);
         }
 
@@ -830,8 +896,8 @@
           const downloadUrl = escapeHtml(poster.download_url);
           return `
             <div class="action-links">
-              <a class="download-link" href="${openUrl}" target="_blank" rel="noreferrer">Open</a>
-              <a class="download-link primary" href="${downloadUrl}" download="${fileName}">Download</a>
+              <a class="download-link" href="${openUrl}" target="_blank" rel="noreferrer">${escapeHtml(i18n.open)}</a>
+              <a class="download-link primary" href="${downloadUrl}" download="${fileName}">${escapeHtml(i18n.download)}</a>
             </div>
           `;
         }
@@ -844,7 +910,7 @@
           if (!poster) {
             resultPanel.innerHTML = `
               <div class="empty">
-                Generate a poster to show a large preview and direct download actions here.
+                ${escapeHtml(i18n.latest_result_empty)}
               </div>
             `;
             if (generatedList) {
@@ -858,8 +924,8 @@
             ? `<img src="${escapeHtml(poster.preview_url)}" alt="${escapeHtml(poster.name)}" />`
             : `
               <div class="result-file-card">
-                <strong>Preview not embedded for this file type.</strong>
-                <span class="note">Use Open or Download to inspect ${escapeHtml(poster.name)}.</span>
+                <strong>${escapeHtml(i18n.preview_unavailable_title)}</strong>
+                <span class="note">${escapeHtml(i18n.preview_unavailable_note.replace("{name}", poster.name))}</span>
               </div>
             `;
 
@@ -867,12 +933,12 @@
             <div class="result-shell">
               <div class="result-preview">${previewMarkup}</div>
               <div class="result-meta">
-                <h3>Ready to use</h3>
+                <h3>${escapeHtml(i18n.ready)}</h3>
                 <code>${escapeHtml(poster.name)}</code>
                 <div class="meta-list">
-                  <span>Modified: ${escapeHtml(poster.modified_label)}</span>
-                  <span>Size: ${escapeHtml(poster.size_label)}</span>
-                  <span>Type: ${escapeHtml(String(poster.suffix).replace(".", "").toUpperCase())}</span>
+                  <span>${escapeHtml(i18n.modified)}: ${escapeHtml(poster.modified_label)}</span>
+                  <span>${escapeHtml(i18n.size)}: ${escapeHtml(poster.size_label)}</span>
+                  <span>${escapeHtml(i18n.type)}: ${escapeHtml(String(poster.suffix).replace(".", "").toUpperCase())}</span>
                 </div>
                 ${renderActionLinks(poster)}
               </div>
@@ -895,7 +961,7 @@
             .map((item) => `
               <div class="generated-item">
                 <div>
-                  <strong>Also created</strong>
+                  <strong>${escapeHtml(i18n.also_created)}</strong>
                   <div><code>${escapeHtml(item.name)}</code></div>
                   <div class="note">${escapeHtml(item.modified_label)} · ${escapeHtml(item.size_label)}</div>
                 </div>
@@ -913,7 +979,7 @@
           if (!posters || !posters.length) {
             downloadsContainer.innerHTML = `
               <div class="empty">
-                No generated posters yet. Create the first one from the form on the left.
+                ${escapeHtml(i18n.downloads_empty)}
               </div>
             `;
             return;
@@ -924,10 +990,10 @@
               <table>
                 <thead>
                   <tr>
-                    <th>File</th>
-                    <th>Modified</th>
-                    <th>Size</th>
-                    <th>Actions</th>
+                    <th>${escapeHtml(i18n.file)}</th>
+                    <th>${escapeHtml(i18n.modified)}</th>
+                    <th>${escapeHtml(i18n.size)}</th>
+                    <th>${escapeHtml(i18n.actions)}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -963,14 +1029,14 @@
             try {
               payload = await response.json();
             } catch (_error) {
-              throw new Error("The server returned an unreadable response.");
+              throw new Error(i18n.response_unreadable);
             }
 
             if (!response.ok || !payload.ok) {
-              throw new Error(payload.error || "Poster generation failed.");
+              throw new Error(payload.error || i18n.generation_failed.replace("__details__", ""));
             }
 
-            renderFlash("success", payload.message || "Poster created.");
+            renderFlash("success", payload.message || i18n.created_fallback);
             renderDownloads(payload.posters || []);
             renderFeaturedPoster(
               (payload.generated && payload.generated[0]) || (payload.posters && payload.posters[0]) || null,
@@ -980,7 +1046,9 @@
               posterCount.textContent = String((payload.posters || []).length);
             }
           } catch (error) {
-            const message = error instanceof Error ? error.message : "Poster generation failed.";
+            const message = error instanceof Error
+              ? error.message
+              : i18n.generation_failed.replace("__details__", "");
             renderFlash("error", message);
           } finally {
             stopLoading();
