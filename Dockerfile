@@ -23,7 +23,7 @@ RUN pip install --no-cache-dir --upgrade pip \
 
 COPY . /app
 
-RUN mkdir -p /app/data/posters /app/data/cache /app/data/fonts-cache
+RUN mkdir -p /app/data /app/data/posters /app/data/cache /app/data/cache/matplotlib /app/data/fonts-cache
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
     CMD python -c "import os, urllib.request; urllib.request.urlopen(f'http://127.0.0.1:{os.environ.get(\"APP_PORT\", \"6641\")}/', timeout=5)"

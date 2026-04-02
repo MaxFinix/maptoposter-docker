@@ -23,6 +23,4 @@ services:
       CACHE_DIR: /app/data/cache
       FONTS_CACHE_DIR: /app/data/fonts-cache
     volumes:
-      - /mnt/user/appdata/maptoposter/posters:/app/data/posters
-      - /mnt/user/appdata/maptoposter/cache:/app/data/cache
-      - /mnt/user/appdata/maptoposter/fonts-cache:/app/data/fonts-cache
+      - /mnt/user/appdata/maptoposter:/app/data

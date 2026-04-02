@@ -129,7 +129,13 @@ docker compose up --build -d
 
 ### Unraid bind mounts
 
-The provided compose file stores persistent data in the Unraid `appdata` share:
+The provided compose file now uses one shared Unraid bind mount:
+
+```text
+/mnt/user/appdata/maptoposter:/app/data
+```
+
+The app creates and uses these subfolders inside that directory automatically:
 
 ```text
 /mnt/user/appdata/maptoposter/posters
@@ -137,7 +143,7 @@ The provided compose file stores persistent data in the Unraid `appdata` share:
 /mnt/user/appdata/maptoposter/fonts-cache
 ```
 
-This keeps generated files in the normal Docker storage area on Unraid while still making them easy to access and download.
+This keeps generated files in the normal Docker storage area on Unraid while avoiding mount errors from managing three separate host paths.
 
 ### Compatibility note
 
@@ -149,12 +155,12 @@ If your specific Unraid installation does not support that, the next clean fallb
 If you see errors like `Permission denied: /app/data/cache/...`, the most common cause is a fixed runtime user combined with fresh host folders under `appdata`.
 
 - The default stack now runs without a fixed `user`, which is the most reliable setup for a fresh Unraid deploy.
-- If you explicitly want `user: "99:100"`, prepare these folders on the host first so UID 99 and GID 100 can write to them:
-  - `/mnt/user/appdata/maptoposter/posters`
-  - `/mnt/user/appdata/maptoposter/cache`
-  - `/mnt/user/appdata/maptoposter/fonts-cache`
+- The default stack now mounts only `/mnt/user/appdata/maptoposter` into `/app/data`, and the app creates `posters`, `cache` and `fonts-cache` inside it automatically.
+- If Unraid shows a restart loop or `Failed to mount`, first check that `/mnt/user/appdata/maptoposter` exists as a directory on the host and is not accidentally a file.
+- If you explicitly want `user: "99:100"`, prepare `/mnt/user/appdata/maptoposter` on the host first so UID 99 and GID 100 can write inside it.
 - The app now performs a startup writable-check for poster output, cache, font cache and Matplotlib cache directories. If one of them is not writable, the container will fail fast with a clear error message instead of only logging a later write failure.
 - `GET /generate 405 Method Not Allowed` used to happen because generation only supported `POST /generate`. The app now redirects `GET /generate` back to `/`, and successful poster creation also redirects back to `/`, so browser refreshes no longer land on a non-supported method route.
+- Because the Unraid stack builds directly from GitHub, push repo changes first and then trigger a rebuild on Unraid. Otherwise Unraid will keep building the old image from the previous remote commit.
 
 ## Usage
 
