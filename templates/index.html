@@ -13,6 +13,7 @@
         --muted: #625b52;
         --accent: #a5542f;
         --accent-strong: #6f3116;
+        --accent-soft: rgba(165, 84, 47, 0.1);
         --line: rgba(29, 27, 25, 0.12);
         --shadow: 0 18px 60px rgba(56, 38, 21, 0.15);
         --radius: 24px;
@@ -112,6 +113,12 @@
         font-size: 1.7rem;
       }
 
+      .panel h3 {
+        margin: 0 0 10px;
+        font-family: "Iowan Old Style", "Palatino Linotype", serif;
+        font-size: 1.25rem;
+      }
+
       .panel p {
         margin: 0 0 16px;
         color: var(--muted);
@@ -205,9 +212,21 @@
         box-shadow: 0 12px 24px rgba(111, 49, 22, 0.26);
       }
 
+      button:disabled {
+        opacity: 0.7;
+        cursor: progress;
+        transform: none;
+      }
+
       .download-link {
         color: var(--accent-strong);
-        background: rgba(165, 84, 47, 0.1);
+        background: var(--accent-soft);
+      }
+
+      .download-link.primary {
+        color: #fff8f0;
+        background: linear-gradient(135deg, var(--accent) 0%, var(--accent-strong) 100%);
+        box-shadow: 0 12px 24px rgba(111, 49, 22, 0.2);
       }
 
       button:hover,
@@ -218,6 +237,11 @@
       .note {
         font-size: 0.88rem;
         color: var(--muted);
+      }
+
+      .flash-stack {
+        display: grid;
+        gap: 10px;
       }
 
       .flash {
@@ -235,6 +259,141 @@
       .flash.error {
         background: rgba(171, 78, 52, 0.12);
         color: #6d2412;
+      }
+
+      .loading-panel {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 14px;
+        align-items: center;
+        padding: 16px 18px;
+        border-radius: 18px;
+        border: 1px solid rgba(165, 84, 47, 0.2);
+        background: rgba(165, 84, 47, 0.08);
+      }
+
+      .loading-panel[hidden] {
+        display: none;
+      }
+
+      .spinner {
+        width: 24px;
+        height: 24px;
+        border-radius: 999px;
+        border: 3px solid rgba(165, 84, 47, 0.18);
+        border-top-color: var(--accent);
+        animation: spin 900ms linear infinite;
+      }
+
+      .loading-copy {
+        margin: 4px 0 0;
+        font-size: 0.9rem;
+        color: var(--muted);
+      }
+
+      .elapsed {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        margin-top: 6px;
+        font-size: 0.9rem;
+        color: var(--accent-strong);
+      }
+
+      .result-block {
+        display: grid;
+        gap: 16px;
+        margin-bottom: 20px;
+      }
+
+      .result-shell {
+        display: grid;
+        grid-template-columns: minmax(0, 1.05fr) minmax(260px, 0.95fr);
+        gap: 18px;
+        padding: 18px;
+        border-radius: 20px;
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.72);
+      }
+
+      .result-preview {
+        border-radius: 18px;
+        overflow: hidden;
+        min-height: 280px;
+        background:
+          linear-gradient(135deg, rgba(29, 27, 25, 0.08), rgba(29, 27, 25, 0.02)),
+          #f7f2eb;
+        border: 1px solid rgba(29, 27, 25, 0.08);
+      }
+
+      .result-preview img {
+        display: block;
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        background: #f7f2eb;
+      }
+
+      .result-file-card {
+        display: grid;
+        align-content: center;
+        justify-items: start;
+        gap: 10px;
+        min-height: 280px;
+        padding: 24px;
+      }
+
+      .result-file-card strong {
+        font-size: 1.1rem;
+      }
+
+      .result-meta {
+        display: grid;
+        align-content: start;
+        gap: 12px;
+      }
+
+      .result-meta code,
+      td code {
+        font-family: "IBM Plex Mono", "SFMono-Regular", monospace;
+        font-size: 0.9rem;
+        word-break: break-word;
+      }
+
+      .meta-list {
+        display: grid;
+        gap: 8px;
+        font-size: 0.92rem;
+        color: var(--muted);
+      }
+
+      .action-links {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+
+      .generated-list {
+        display: grid;
+        gap: 10px;
+      }
+
+      .generated-list[hidden] {
+        display: none;
+      }
+
+      .generated-item {
+        display: grid;
+        gap: 10px;
+        padding: 14px 16px;
+        border-radius: 16px;
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.66);
+      }
+
+      .downloads-block {
+        display: grid;
+        gap: 14px;
       }
 
       .table-wrap {
@@ -261,11 +420,6 @@
         color: var(--muted);
       }
 
-      td code {
-        font-family: "IBM Plex Mono", "SFMono-Regular", monospace;
-        font-size: 0.9rem;
-      }
-
       .empty {
         padding: 28px;
         border-radius: 18px;
@@ -285,9 +439,19 @@
         }
       }
 
+      @keyframes spin {
+        from {
+          transform: rotate(0deg);
+        }
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
       @media (max-width: 980px) {
         .hero,
-        .layout {
+        .layout,
+        .result-shell {
           grid-template-columns: 1fr;
         }
       }
@@ -307,6 +471,17 @@
         .panel {
           padding: 18px;
         }
+
+        .actions,
+        .action-links {
+          flex-direction: column;
+          align-items: stretch;
+        }
+
+        button,
+        .download-link {
+          width: 100%;
+        }
       }
     </style>
   </head>
@@ -317,7 +492,8 @@
           <h1 class="hero-title">MaptoPoster</h1>
           <p class="hero-copy">
             Generate printable city map artwork in the browser, keep every poster in your Unraid
-            appdata folder, and download finished files without touching the filesystem.
+            appdata folder, preview the newest result right away, and download finished files
+            without touching the filesystem.
           </p>
         </div>
         <div class="card hero-meta">
@@ -326,8 +502,8 @@
             <span>Available themes from the bundled JSON library.</span>
           </div>
           <div class="stat">
-            <strong>{{ posters|length }}</strong>
-            <span>Generated files currently available for download.</span>
+            <strong id="poster-count">{{ posters|length }}</strong>
+            <span>Generated files currently available from the web interface.</span>
           </div>
         </div>
       </section>
@@ -340,14 +516,16 @@
             latitude and longitude.
           </p>
 
-          {% if message %}
-          <div class="flash success">{{ message }}</div>
-          {% endif %}
-          {% if error %}
-          <div class="flash error">{{ error }}</div>
-          {% endif %}
+          <div id="flash-container" class="flash-stack">
+            {% if message %}
+            <div class="flash success">{{ message }}</div>
+            {% endif %}
+            {% if error %}
+            <div class="flash error">{{ error }}</div>
+            {% endif %}
+          </div>
 
-          <form method="post" action="{{ request.url_for('generate') }}">
+          <form id="poster-form" method="post" action="{{ request.url_for('generate') }}">
             <div class="grid">
               <label>
                 City
@@ -446,53 +624,369 @@
             </label>
 
             <div class="actions">
-              <button type="submit">Generate poster</button>
-              <span class="note">Images are stored in the mounted posters directory.</span>
+              <button id="generate-button" type="submit">Generate poster</button>
+              <span class="note">Generated files are written into the mounted posters directory.</span>
+            </div>
+
+            <div id="loading-state" class="loading-panel" hidden>
+              <div class="spinner" aria-hidden="true"></div>
+              <div>
+                <strong>Generating poster...</strong>
+                <div id="loading-elapsed" class="elapsed">0s elapsed</div>
+                <p class="loading-copy">
+                  Please keep this page open. Large cities, network fetches, and all-theme runs can
+                  take a little longer.
+                </p>
+              </div>
             </div>
           </form>
         </section>
 
         <section class="panel">
-          <h2>Downloads</h2>
-          <p>
-            Newest files appear first. Downloads are served directly from the persistent poster
-            directory.
-          </p>
+          <div class="result-block">
+            <div>
+              <h2>Latest Result</h2>
+              <p>
+                The newest generated file appears here right away so you can preview it and
+                download it without browsing the filesystem.
+              </p>
+            </div>
 
-          {% if posters %}
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>File</th>
-                  <th>Modified</th>
-                  <th>Size</th>
-                  <th>Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {% for poster in posters %}
-                <tr>
-                  <td><code>{{ poster.name }}</code></td>
-                  <td>{{ poster.modified_label }}</td>
-                  <td>{{ poster.size_label }}</td>
-                  <td>
-                    <a class="download-link" href="{{ request.url_for('download_poster', filename=poster.name) }}">
+            <div id="result-panel">
+              {% if featured_poster %}
+              <div class="result-shell">
+                <div class="result-preview">
+                  {% if featured_poster.is_image_previewable %}
+                  <img src="{{ featured_poster.preview_url }}" alt="{{ featured_poster.name }}" />
+                  {% else %}
+                  <div class="result-file-card">
+                    <strong>Preview not embedded for this file type.</strong>
+                    <span class="note">Use Open or Download to inspect {{ featured_poster.name }}.</span>
+                  </div>
+                  {% endif %}
+                </div>
+                <div class="result-meta">
+                  <h3>Ready to use</h3>
+                  <code>{{ featured_poster.name }}</code>
+                  <div class="meta-list">
+                    <span>Modified: {{ featured_poster.modified_label }}</span>
+                    <span>Size: {{ featured_poster.size_label }}</span>
+                    <span>Type: {{ featured_poster.suffix|upper|replace(".", "") }}</span>
+                  </div>
+                  <div class="action-links">
+                    <a
+                      class="download-link"
+                      href="{{ featured_poster.open_url }}"
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Open
+                    </a>
+                    <a
+                      class="download-link primary"
+                      href="{{ featured_poster.download_url }}"
+                      download="{{ featured_poster.name }}"
+                    >
                       Download
                     </a>
-                  </td>
-                </tr>
-                {% endfor %}
-              </tbody>
-            </table>
+                  </div>
+                </div>
+              </div>
+              {% else %}
+              <div class="empty">
+                Generate a poster to show a large preview and direct download actions here.
+              </div>
+              {% endif %}
+            </div>
+
+            <div id="generated-list" class="generated-list" hidden></div>
           </div>
-          {% else %}
-          <div class="empty">
-            No generated posters yet. Create the first one from the form on the left.
+
+          <div class="downloads-block">
+            <div>
+              <h2>Downloads</h2>
+              <p>
+                Newest files appear first. Every file can be opened inline or downloaded directly
+                from this page.
+              </p>
+            </div>
+
+            <div id="downloads-container">
+              {% if posters %}
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>File</th>
+                      <th>Modified</th>
+                      <th>Size</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for poster in posters %}
+                    <tr>
+                      <td><code>{{ poster.name }}</code></td>
+                      <td>{{ poster.modified_label }}</td>
+                      <td>{{ poster.size_label }}</td>
+                      <td>
+                        <div class="action-links">
+                          <a
+                            class="download-link"
+                            href="{{ poster.open_url }}"
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            Open
+                          </a>
+                          <a
+                            class="download-link primary"
+                            href="{{ poster.download_url }}"
+                            download="{{ poster.name }}"
+                          >
+                            Download
+                          </a>
+                        </div>
+                      </td>
+                    </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+              {% else %}
+              <div class="empty">
+                No generated posters yet. Create the first one from the form on the left.
+              </div>
+              {% endif %}
+            </div>
           </div>
-          {% endif %}
         </section>
       </section>
     </main>
+
+    <script>
+      (() => {
+        const form = document.getElementById("poster-form");
+        if (!form || !window.fetch || !window.FormData) {
+          return;
+        }
+
+        const flashContainer = document.getElementById("flash-container");
+        const loadingState = document.getElementById("loading-state");
+        const loadingElapsed = document.getElementById("loading-elapsed");
+        const generateButton = document.getElementById("generate-button");
+        const resultPanel = document.getElementById("result-panel");
+        const generatedList = document.getElementById("generated-list");
+        const downloadsContainer = document.getElementById("downloads-container");
+        const posterCount = document.getElementById("poster-count");
+
+        let timerId = null;
+        let startedAt = 0;
+
+        function escapeHtml(value) {
+          return String(value).replace(/[&<>"']/g, (char) => ({
+            "&": "&amp;",
+            "<": "&lt;",
+            ">": "&gt;",
+            '"': "&quot;",
+            "'": "&#39;",
+          })[char]);
+        }
+
+        function renderFlash(kind, text) {
+          if (!flashContainer) {
+            return;
+          }
+          if (!text) {
+            flashContainer.innerHTML = "";
+            return;
+          }
+          flashContainer.innerHTML = `<div class="flash ${kind}">${escapeHtml(text)}</div>`;
+        }
+
+        function startLoading() {
+          startedAt = Date.now();
+          generateButton.disabled = true;
+          loadingState.hidden = false;
+          loadingElapsed.textContent = "0s elapsed";
+          timerId = window.setInterval(() => {
+            const seconds = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
+            loadingElapsed.textContent = `${seconds}s elapsed`;
+          }, 1000);
+        }
+
+        function stopLoading() {
+          generateButton.disabled = false;
+          loadingState.hidden = true;
+          if (timerId !== null) {
+            window.clearInterval(timerId);
+            timerId = null;
+          }
+        }
+
+        function renderActionLinks(poster) {
+          const fileName = escapeHtml(poster.name);
+          const openUrl = escapeHtml(poster.open_url);
+          const downloadUrl = escapeHtml(poster.download_url);
+          return `
+            <div class="action-links">
+              <a class="download-link" href="${openUrl}" target="_blank" rel="noreferrer">Open</a>
+              <a class="download-link primary" href="${downloadUrl}" download="${fileName}">Download</a>
+            </div>
+          `;
+        }
+
+        function renderFeaturedPoster(poster, generated) {
+          if (!resultPanel) {
+            return;
+          }
+
+          if (!poster) {
+            resultPanel.innerHTML = `
+              <div class="empty">
+                Generate a poster to show a large preview and direct download actions here.
+              </div>
+            `;
+            if (generatedList) {
+              generatedList.innerHTML = "";
+              generatedList.hidden = true;
+            }
+            return;
+          }
+
+          const previewMarkup = poster.is_image_previewable
+            ? `<img src="${escapeHtml(poster.preview_url)}" alt="${escapeHtml(poster.name)}" />`
+            : `
+              <div class="result-file-card">
+                <strong>Preview not embedded for this file type.</strong>
+                <span class="note">Use Open or Download to inspect ${escapeHtml(poster.name)}.</span>
+              </div>
+            `;
+
+          resultPanel.innerHTML = `
+            <div class="result-shell">
+              <div class="result-preview">${previewMarkup}</div>
+              <div class="result-meta">
+                <h3>Ready to use</h3>
+                <code>${escapeHtml(poster.name)}</code>
+                <div class="meta-list">
+                  <span>Modified: ${escapeHtml(poster.modified_label)}</span>
+                  <span>Size: ${escapeHtml(poster.size_label)}</span>
+                  <span>Type: ${escapeHtml(String(poster.suffix).replace(".", "").toUpperCase())}</span>
+                </div>
+                ${renderActionLinks(poster)}
+              </div>
+            </div>
+          `;
+
+          if (!generatedList) {
+            return;
+          }
+
+          const extras = (generated || []).filter((item) => item.name !== poster.name);
+          if (!extras.length) {
+            generatedList.innerHTML = "";
+            generatedList.hidden = true;
+            return;
+          }
+
+          generatedList.hidden = false;
+          generatedList.innerHTML = extras
+            .map((item) => `
+              <div class="generated-item">
+                <div>
+                  <strong>Also created</strong>
+                  <div><code>${escapeHtml(item.name)}</code></div>
+                  <div class="note">${escapeHtml(item.modified_label)} · ${escapeHtml(item.size_label)}</div>
+                </div>
+                ${renderActionLinks(item)}
+              </div>
+            `)
+            .join("");
+        }
+
+        function renderDownloads(posters) {
+          if (!downloadsContainer) {
+            return;
+          }
+
+          if (!posters || !posters.length) {
+            downloadsContainer.innerHTML = `
+              <div class="empty">
+                No generated posters yet. Create the first one from the form on the left.
+              </div>
+            `;
+            return;
+          }
+
+          downloadsContainer.innerHTML = `
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>File</th>
+                    <th>Modified</th>
+                    <th>Size</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${posters.map((poster) => `
+                    <tr>
+                      <td><code>${escapeHtml(poster.name)}</code></td>
+                      <td>${escapeHtml(poster.modified_label)}</td>
+                      <td>${escapeHtml(poster.size_label)}</td>
+                      <td>${renderActionLinks(poster)}</td>
+                    </tr>
+                  `).join("")}
+                </tbody>
+              </table>
+            </div>
+          `;
+        }
+
+        form.addEventListener("submit", async (event) => {
+          event.preventDefault();
+          renderFlash("", "");
+          startLoading();
+
+          try {
+            const response = await fetch(form.action, {
+              method: "POST",
+              body: new FormData(form),
+              headers: {
+                Accept: "application/json",
+              },
+            });
+
+            let payload = null;
+            try {
+              payload = await response.json();
+            } catch (_error) {
+              throw new Error("The server returned an unreadable response.");
+            }
+
+            if (!response.ok || !payload.ok) {
+              throw new Error(payload.error || "Poster generation failed.");
+            }
+
+            renderFlash("success", payload.message || "Poster created.");
+            renderDownloads(payload.posters || []);
+            renderFeaturedPoster(
+              (payload.generated && payload.generated[0]) || (payload.posters && payload.posters[0]) || null,
+              payload.generated || []
+            );
+            if (posterCount) {
+              posterCount.textContent = String((payload.posters || []).length);
+            }
+          } catch (error) {
+            const message = error instanceof Error ? error.message : "Poster generation failed.";
+            renderFlash("error", message);
+          } finally {
+            stopLoading();
+          }
+        });
+      })();
+    </script>
   </body>
 </html>

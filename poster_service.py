@@ -82,6 +82,11 @@ THEMES_DIR = BASE_DIR / "themes"
 DEFAULT_POSTERS_DIR = BASE_DIR / "posters"
 DEFAULT_CACHE_DIR = BASE_DIR / "cache"
 VALID_OUTPUT_FORMATS = {"png", "svg", "pdf"}
+POSTER_MEDIA_TYPES = {
+    ".png": "image/png",
+    ".svg": "image/svg+xml",
+    ".pdf": "application/pdf",
+}
 MAX_DIMENSION_INCHES = 20.0
 GENERATION_LOCK = threading.Lock()
 UNRAID_PERMISSION_HINT = (
@@ -818,31 +823,39 @@ def format_bytes(size_bytes: int) -> str:
     return f"{size_bytes} B"
 
 
+def get_poster_media_type(path: Path) -> str:
+    return POSTER_MEDIA_TYPES.get(path.suffix.lower(), "application/octet-stream")
+
+
+def build_poster_record(path: Path) -> dict[str, Any]:
+    stat = path.stat()
+    modified_timestamp = stat.st_mtime
+    return {
+        "name": path.name,
+        "path": path,
+        "suffix": path.suffix.lower(),
+        "media_type": get_poster_media_type(path),
+        "size_bytes": stat.st_size,
+        "size_label": format_bytes(stat.st_size),
+        "modified_timestamp": modified_timestamp,
+        "modified_label": datetime.fromtimestamp(modified_timestamp).strftime(
+            "%Y-%m-%d %H:%M:%S"
+        ),
+    }
+
+
 def list_generated_files() -> list[dict[str, Any]]:
     POSTERS_DIR.mkdir(parents=True, exist_ok=True)
-    valid_suffixes = {".png", ".pdf", ".svg"}
     files = []
     for path in POSTERS_DIR.iterdir():
         if not path.is_file():
             continue
-        if path.suffix.lower() not in valid_suffixes:
+        if path.suffix.lower() not in POSTER_MEDIA_TYPES:
             continue
 
-        stat = path.stat()
-        files.append(
-            {
-                "name": path.name,
-                "path": path,
-                "size_bytes": stat.st_size,
-                "size_label": format_bytes(stat.st_size),
-                "modified_at": datetime.fromtimestamp(stat.st_mtime),
-                "modified_label": datetime.fromtimestamp(stat.st_mtime).strftime(
-                    "%Y-%m-%d %H:%M:%S"
-                ),
-            }
-        )
+        files.append(build_poster_record(path))
 
-    files.sort(key=lambda item: item["modified_at"], reverse=True)
+    files.sort(key=lambda item: item["modified_timestamp"], reverse=True)
     return files
 
 
@@ -856,6 +869,9 @@ def get_safe_poster_path(filename: str) -> Path | None:
     try:
         candidate.relative_to(root)
     except ValueError:
+        return None
+
+    if candidate.suffix.lower() not in POSTER_MEDIA_TYPES:
         return None
 
     if not candidate.is_file():
