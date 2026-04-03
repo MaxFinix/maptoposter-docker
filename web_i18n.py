@@ -118,6 +118,15 @@ TEXTS: dict[str, dict[str, Any]] = {
             "created_singular": "1 Datei erstellt: {names}",
             "created_plural": "{count} Dateien erstellt: {names}",
             "created_fallback": "Poster erstellt.",
+            "job_started": "Poster-Erstellung gestartet. Der Status wird automatisch aktualisiert.",
+            "job_running": "Es läuft bereits eine Poster-Erstellung. Der Status wird automatisch aktualisiert.",
+            "job_not_found": (
+                "Der Erstellungsauftrag wurde nicht gefunden. Bitte starte die Poster-Erstellung erneut."
+            ),
+            "job_status_retrying": (
+                "Der Status der Poster-Erstellung konnte gerade nicht geladen werden. "
+                "Es wird erneut versucht."
+            ),
             "generation_failed_prefix": "Poster-Erstellung fehlgeschlagen: {details}",
             "response_unreadable": "Die Serverantwort konnte nicht gelesen werden.",
             "network_failed": (
@@ -234,6 +243,14 @@ TEXTS: dict[str, dict[str, Any]] = {
             "created_singular": "Created 1 file: {names}",
             "created_plural": "Created {count} files: {names}",
             "created_fallback": "Poster created.",
+            "job_started": "Poster generation started. Status updates will appear automatically.",
+            "job_running": "A poster generation job is already running. Status updates will continue automatically.",
+            "job_not_found": (
+                "The generation job could not be found. Please start the poster generation again."
+            ),
+            "job_status_retrying": (
+                "The poster generation status could not be loaded just now. Retrying automatically."
+            ),
             "generation_failed_prefix": "Poster generation failed: {details}",
             "response_unreadable": "The server returned an unreadable response.",
             "network_failed": (
@@ -375,6 +392,10 @@ def build_js_text(language: str) -> dict[str, str]:
         "elapsed": text["loading"]["elapsed"],
         "response_unreadable": text["messages"]["response_unreadable"],
         "network_failed": text["messages"]["network_failed"],
+        "job_started": text["messages"]["job_started"],
+        "job_running": text["messages"]["job_running"],
+        "job_not_found": text["messages"]["job_not_found"],
+        "job_status_retrying": text["messages"]["job_status_retrying"],
         "generation_failed": text["messages"]["generation_failed_prefix"].format(
             details="__details__"
         ),

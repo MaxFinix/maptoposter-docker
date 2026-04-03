@@ -5,14 +5,17 @@ FastAPI application for generating and downloading map posters.
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from dataclasses import dataclass, replace
 import os
 from pathlib import Path
+import threading
+import time
 from urllib.parse import urlencode
+from uuid import uuid4
 
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
-from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException
 
 from poster_service import (
@@ -60,6 +63,25 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="MaptoPoster", version="0.3.0", lifespan=lifespan)
+JOB_POLL_INTERVAL_MS = 2000
+JOB_LOCK = threading.Lock()
+ACTIVE_JOB_ID: str | None = None
+
+
+@dataclass(slots=True)
+class GenerationJob:
+    id: str
+    status: str
+    created_at: float
+    started_at: float
+    finished_at: float | None
+    language: str
+    message: str | None
+    error: str | None
+    generated_names: list[str]
+
+
+JOBS: dict[str, GenerationJob] = {}
 
 
 def build_form_data(language: str, overrides: dict[str, str] | None = None) -> dict[str, str]:
@@ -132,6 +154,158 @@ def relative_url_for(route_name: str, **path_params: str) -> str:
     return str(app.url_path_for(route_name, **path_params))
 
 
+def snapshot_job(job: GenerationJob | None) -> GenerationJob | None:
+    if job is None:
+        return None
+    return replace(job, generated_names=list(job.generated_names))
+
+
+def get_job(job_id: str | None) -> GenerationJob | None:
+    if not job_id:
+        return None
+
+    with JOB_LOCK:
+        return snapshot_job(JOBS.get(job_id))
+
+
+def get_active_job() -> GenerationJob | None:
+    with JOB_LOCK:
+        if ACTIVE_JOB_ID is None:
+            return None
+        return snapshot_job(JOBS.get(ACTIVE_JOB_ID))
+
+
+def build_job_payload(
+    request: Request,
+    job: GenerationJob,
+) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "ok": job.status != "failed",
+        "job_id": job.id,
+        "status": job.status,
+        "lang": job.language,
+        "message": job.message,
+    }
+
+    if job.status == "running":
+        payload["elapsed_seconds"] = max(0, int(time.time() - job.started_at))
+        return payload
+
+    if job.status == "failed":
+        payload["error"] = job.error
+        return payload
+
+    payload["elapsed_seconds"] = (
+        max(0, int((job.finished_at or time.time()) - job.started_at))
+    )
+    payload.update(build_generate_payload(request, set(job.generated_names), job.language))
+    return payload
+
+
+def run_generation_job(job_id: str, options: PosterOptions, client_host: str) -> None:
+    global ACTIVE_JOB_ID
+
+    job = get_job(job_id)
+    if job is None:
+        return
+
+    try:
+        generated = generate_posters(options)
+    except ValueError as exc:
+        localized_error = translate_error_message(str(exc), job.language)
+        with JOB_LOCK:
+            current = JOBS.get(job_id)
+            if current is not None:
+                current.status = "failed"
+                current.finished_at = time.time()
+                current.error = localized_error
+                current.message = None
+                if ACTIVE_JOB_ID == job_id:
+                    ACTIVE_JOB_ID = None
+        print(f"Generate job failed {job_id} from {client_host}: {localized_error}", flush=True)
+        return
+    except Exception as exc:
+        localized_error = build_generation_failure_message(
+            translate_error_message(str(exc), job.language),
+            job.language,
+        )
+        with JOB_LOCK:
+            current = JOBS.get(job_id)
+            if current is not None:
+                current.status = "failed"
+                current.finished_at = time.time()
+                current.error = localized_error
+                current.message = None
+                if ACTIVE_JOB_ID == job_id:
+                    ACTIVE_JOB_ID = None
+        print(f"Generate job failed {job_id} from {client_host}: {exc}", flush=True)
+        return
+
+    generated_names = [path.name for path in generated]
+    names = ", ".join(generated_names)
+    message = format_created_message(len(generated_names), names, job.language)
+
+    with JOB_LOCK:
+        current = JOBS.get(job_id)
+        if current is not None:
+            current.status = "succeeded"
+            current.finished_at = time.time()
+            current.generated_names = generated_names
+            current.message = message
+            current.error = None
+            if ACTIVE_JOB_ID == job_id:
+                ACTIVE_JOB_ID = None
+
+    print(
+        f"Generate job completed {job_id} from {client_host}: "
+        f"{len(generated_names)} file(s) -> {names}",
+        flush=True,
+    )
+
+
+def start_generation_job(
+    options: PosterOptions,
+    language: str,
+    client_host: str,
+) -> tuple[GenerationJob, bool]:
+    global ACTIVE_JOB_ID
+
+    with JOB_LOCK:
+        active_job = JOBS.get(ACTIVE_JOB_ID) if ACTIVE_JOB_ID is not None else None
+        if active_job is not None and active_job.status == "running":
+            return snapshot_job(active_job), False
+
+        job = GenerationJob(
+            id=uuid4().hex,
+            status="running",
+            created_at=time.time(),
+            started_at=time.time(),
+            finished_at=None,
+            language=language,
+            message=get_text_bundle(language)["messages"]["job_started"],
+            error=None,
+            generated_names=[],
+        )
+        JOBS[job.id] = job
+        ACTIVE_JOB_ID = job.id
+
+    print(
+        f"Generate job started {job.id} from {client_host}: "
+        f"city={options.city!r}, country={options.country!r}, theme={options.theme!r}, "
+        f"all_themes={options.all_themes}, format={options.output_format!r}, lang={language!r}",
+        flush=True,
+    )
+
+    thread = threading.Thread(
+        target=run_generation_job,
+        args=(job.id, options, client_host),
+        daemon=True,
+        name=f"maptoposter-job-{job.id[:8]}",
+    )
+    thread.start()
+    return snapshot_job(job), True
+
+
 def build_language_urls(request: Request) -> dict[str, str]:
     query_params = dict(request.query_params)
     query_params.pop("message", None)
@@ -153,6 +327,7 @@ def render_index(
     error: str | None = None,
     form_data: dict[str, str] | None = None,
     focus_name: str | None = None,
+    initial_job_id: str | None = None,
 ) -> HTMLResponse:
     posters = enrich_posters(request, list_generated_files(), language)
     context = {
@@ -167,6 +342,8 @@ def render_index(
         "language_urls": build_language_urls(request),
         "posters": posters,
         "featured_poster": choose_featured_poster(posters, focus_name),
+        "initial_job_id": initial_job_id,
+        "job_poll_interval_ms": JOB_POLL_INTERVAL_MS,
     }
     return templates.TemplateResponse("index.html", context)
 
@@ -178,6 +355,7 @@ def redirect_to_index(
     message: str | None = None,
     error: str | None = None,
     focus_name: str | None = None,
+    job_id: str | None = None,
 ) -> RedirectResponse:
     query: dict[str, str] = {"lang": language}
     if message:
@@ -186,6 +364,8 @@ def redirect_to_index(
         query["error"] = error
     if focus_name:
         query["focus"] = focus_name
+    if job_id:
+        query["job"] = job_id
 
     url = relative_url_for("index")
     if query:
@@ -252,12 +432,34 @@ def build_generate_payload(
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request) -> HTMLResponse:
     language = resolve_language(request)
+    message = request.query_params.get("message")
+    error = request.query_params.get("error")
+    focus_name = request.query_params.get("focus")
+    initial_job_id: str | None = None
+
+    requested_job = get_job(request.query_params.get("job"))
+    if requested_job is None:
+        if request.query_params.get("job") and error is None:
+            error = get_text_bundle(language)["messages"]["job_not_found"]
+    elif requested_job.status == "running":
+        initial_job_id = requested_job.id
+        if message is None:
+            message = requested_job.message
+    elif requested_job.status == "succeeded":
+        if message is None:
+            message = requested_job.message
+        if focus_name is None and requested_job.generated_names:
+            focus_name = requested_job.generated_names[0]
+    elif requested_job.status == "failed" and error is None:
+        error = requested_job.error
+
     response = render_index(
         request,
         language=language,
-        message=request.query_params.get("message"),
-        error=request.query_params.get("error"),
-        focus_name=request.query_params.get("focus"),
+        message=message,
+        error=error,
+        focus_name=focus_name,
+        initial_job_id=initial_job_id,
     )
     return with_language_cookie(response, language)
 
@@ -292,13 +494,6 @@ async def generate(
     text = get_text_bundle(language)
     client_host = request.client.host if request.client else "unknown"
 
-    print(
-        "Generate request started "
-        f"from {client_host}: city={city!r}, country={country!r}, theme={theme!r}, "
-        f"all_themes={all_themes == 'on'}, format={output_format!r}, lang={language!r}",
-        flush=True,
-    )
-
     try:
         options = PosterOptions(
             city=city,
@@ -316,62 +511,87 @@ async def generate(
             longitude=parse_coordinate(longitude),
             output_format=output_format,
         )
-        generated = await run_in_threadpool(generate_posters, options)
     except ValueError as exc:
         localized_error = translate_error_message(str(exc), language)
-        print(
-            f"Generate request validation failed from {client_host}: {localized_error}",
-            flush=True,
-        )
+        print(f"Generate request validation failed from {client_host}: {localized_error}", flush=True)
         if wants_json_response(request):
-            payload = build_generate_payload(request, set(), language)
             response = JSONResponse(
-                {"ok": False, "error": localized_error, **payload},
+                {"ok": False, "error": localized_error, "lang": language},
                 status_code=400,
             )
             return with_language_cookie(response, language)
         response = redirect_to_index(request, language=language, error=localized_error)
         return with_language_cookie(response, language)
-    except Exception as exc:
-        localized_error = build_generation_failure_message(
-            translate_error_message(str(exc), language),
-            language,
-        )
+
+    active_job, created = start_generation_job(options, language, client_host)
+    if not created:
+        error_message = text["messages"]["job_running"]
         print(
-            f"Generate request failed from {client_host}: {exc}",
+            f"Generate request rejected from {client_host}: job {active_job.id} already running",
             flush=True,
         )
         if wants_json_response(request):
-            payload = build_generate_payload(request, set(), language)
             response = JSONResponse(
-                {"ok": False, "error": localized_error, **payload},
-                status_code=500,
+                {
+                    "ok": False,
+                    "job_id": active_job.id,
+                    "status": active_job.status,
+                    "error": error_message,
+                    "lang": language,
+                },
+                status_code=409,
             )
             return with_language_cookie(response, language)
-        response = redirect_to_index(request, language=language, error=localized_error)
-        return with_language_cookie(response, language)
 
-    names = ", ".join(path.name for path in generated)
-    generated_names = {path.name for path in generated}
-    message = format_created_message(len(generated), names, language)
-    print(
-        f"Generate request completed from {client_host}: {len(generated)} file(s) -> {names}",
-        flush=True,
-    )
+        response = redirect_to_index(
+            request,
+            language=language,
+            error=error_message,
+            job_id=active_job.id,
+        )
+        return with_language_cookie(response, language)
 
     if wants_json_response(request):
-        payload = build_generate_payload(request, generated_names, language)
-        response = JSONResponse({"ok": True, "message": message, **payload})
+        response = JSONResponse(
+            {
+                "ok": True,
+                "job_id": active_job.id,
+                "status": active_job.status,
+                "message": active_job.message,
+                "lang": language,
+            },
+            status_code=202,
+        )
         return with_language_cookie(response, language)
 
-    focus_name = generated[0].name if generated else None
     response = redirect_to_index(
         request,
         language=language,
-        message=message,
-        focus_name=focus_name,
+        message=active_job.message,
+        job_id=active_job.id,
     )
     return with_language_cookie(response, language)
+
+
+@app.get("/jobs/{job_id}", response_model=None)
+async def job_status(request: Request, job_id: str) -> JSONResponse:
+    job = get_job(job_id)
+    if job is None:
+        language = resolve_language(request)
+        response = JSONResponse(
+            {
+                "ok": False,
+                "job_id": job_id,
+                "status": "missing",
+                "error": get_text_bundle(language)["messages"]["job_not_found"],
+                "lang": language,
+            },
+            status_code=404,
+        )
+        return with_language_cookie(response, language)
+
+    response = JSONResponse(build_job_payload(request, job))
+    return with_language_cookie(response, job.language)
 
 
 @app.get("/files/{filename}")

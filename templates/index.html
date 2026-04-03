@@ -832,11 +832,15 @@
     <script>
       (() => {
         const i18n = {{ js_text | tojson }};
+        const initialJobId = {{ initial_job_id | tojson }};
+        const jobPollIntervalMs = {{ job_poll_interval_ms | tojson }};
+        const defaultLanguage = {{ lang | tojson }};
         const form = document.getElementById("poster-form");
         if (!form || !window.fetch || !window.FormData) {
           return;
         }
 
+        const languageInput = form.querySelector('input[name="lang"]');
         const flashContainer = document.getElementById("flash-container");
         const loadingState = document.getElementById("loading-state");
         const loadingElapsed = document.getElementById("loading-elapsed");
@@ -847,7 +851,9 @@
         const posterCount = document.getElementById("poster-count");
 
         let timerId = null;
+        let pollTimerId = null;
         let startedAt = 0;
+        let currentJobId = initialJobId;
 
         function escapeHtml(value) {
           return String(value).replace(/[&<>"']/g, (char) => ({
@@ -870,11 +876,22 @@
           flashContainer.innerHTML = `<div class="flash ${kind}">${escapeHtml(text)}</div>`;
         }
 
-        function startLoading() {
-          startedAt = Date.now();
+        function getCurrentLanguage() {
+          return languageInput ? languageInput.value : defaultLanguage;
+        }
+
+        function setLoadingElapsed(seconds) {
+          startedAt = Date.now() - (seconds * 1000);
+          loadingElapsed.textContent = i18n.elapsed.replace("{seconds}", String(seconds));
+        }
+
+        function startLoading(elapsedSeconds = 0) {
           generateButton.disabled = true;
           loadingState.hidden = false;
-          loadingElapsed.textContent = i18n.elapsed.replace("{seconds}", "0");
+          setLoadingElapsed(elapsedSeconds);
+          if (timerId !== null) {
+            window.clearInterval(timerId);
+          }
           timerId = window.setInterval(() => {
             const seconds = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
             loadingElapsed.textContent = i18n.elapsed.replace("{seconds}", String(seconds));
@@ -890,6 +907,13 @@
           }
         }
 
+        function clearPollTimer() {
+          if (pollTimerId !== null) {
+            window.clearTimeout(pollTimerId);
+            pollTimerId = null;
+          }
+        }
+
         function isNetworkFailure(error) {
           if (!(error instanceof Error)) {
             return false;
@@ -900,6 +924,50 @@
           }
 
           return /load failed|failed to fetch|networkerror/i.test(error.message);
+        }
+
+        function updateBrowserUrl(jobId, focusName) {
+          const url = new URL(window.location.href);
+          url.searchParams.set("lang", getCurrentLanguage());
+
+          if (jobId) {
+            url.searchParams.set("job", jobId);
+          } else {
+            url.searchParams.delete("job");
+          }
+
+          if (focusName) {
+            url.searchParams.set("focus", focusName);
+          } else {
+            url.searchParams.delete("focus");
+          }
+
+          url.searchParams.delete("message");
+          url.searchParams.delete("error");
+
+          const search = url.searchParams.toString();
+          const nextUrl = `${url.pathname}${search ? `?${search}` : ""}${url.hash}`;
+          window.history.replaceState(null, "", nextUrl);
+        }
+
+        async function readJson(response) {
+          try {
+            return await response.json();
+          } catch (_error) {
+            throw new Error(i18n.response_unreadable);
+          }
+        }
+
+        function schedulePoll(delayMs = jobPollIntervalMs) {
+          clearPollTimer();
+          if (!currentJobId) {
+            return;
+          }
+
+          pollTimerId = window.setTimeout(() => {
+            pollTimerId = null;
+            void pollJobStatus(currentJobId);
+          }, delayMs);
         }
 
         function renderActionLinks(poster) {
@@ -1023,10 +1091,96 @@
           `;
         }
 
+        function renderSucceededJob(payload) {
+          const posters = payload.posters || [];
+          const generated = payload.generated || [];
+          const featuredPoster = generated[0] || posters[0] || null;
+
+          renderFlash("success", payload.message || i18n.created_fallback);
+          renderDownloads(posters);
+          renderFeaturedPoster(featuredPoster, generated);
+          if (posterCount) {
+            posterCount.textContent = String(posters.length);
+          }
+
+          stopLoading();
+          clearPollTimer();
+          currentJobId = null;
+          updateBrowserUrl(null, featuredPoster ? featuredPoster.name : null);
+        }
+
+        async function pollJobStatus(jobId) {
+          if (!jobId) {
+            return;
+          }
+
+          try {
+            const response = await fetch(`/jobs/${encodeURIComponent(jobId)}`, {
+              headers: {
+                Accept: "application/json",
+              },
+            });
+            const payload = await readJson(response);
+
+            if (response.status === 404) {
+              currentJobId = null;
+              clearPollTimer();
+              stopLoading();
+              renderFlash("error", payload.error || i18n.job_not_found);
+              updateBrowserUrl(null, null);
+              return;
+            }
+
+            if (!response.ok) {
+              throw new Error(payload.error || i18n.generation_failed.replace("__details__", ""));
+            }
+
+            if (payload.status === "running") {
+              currentJobId = payload.job_id || jobId;
+              setLoadingElapsed(typeof payload.elapsed_seconds === "number" ? payload.elapsed_seconds : 0);
+              if (loadingState.hidden || timerId === null) {
+                startLoading(typeof payload.elapsed_seconds === "number" ? payload.elapsed_seconds : 0);
+              }
+              updateBrowserUrl(currentJobId, null);
+              schedulePoll();
+              return;
+            }
+
+            if (payload.status === "succeeded") {
+              renderSucceededJob(payload);
+              return;
+            }
+
+            if (payload.status === "failed") {
+              currentJobId = null;
+              clearPollTimer();
+              stopLoading();
+              renderFlash("error", payload.error || i18n.generation_failed.replace("__details__", ""));
+              updateBrowserUrl(null, null);
+              return;
+            }
+
+            throw new Error(i18n.response_unreadable);
+          } catch (error) {
+            console.error("Job status request failed", error);
+            renderFlash("error", isNetworkFailure(error) ? i18n.job_status_retrying : (error instanceof Error ? error.message : i18n.job_status_retrying));
+            if (currentJobId === jobId) {
+              if (loadingState.hidden || timerId === null) {
+                startLoading(0);
+              }
+              schedulePoll(Math.max(jobPollIntervalMs, 3000));
+              return;
+            }
+            stopLoading();
+          }
+        }
+
         form.addEventListener("submit", async (event) => {
           event.preventDefault();
           renderFlash("", "");
-          startLoading();
+          clearPollTimer();
+          currentJobId = null;
+          startLoading(0);
 
           try {
             const response = await fetch(form.action, {
@@ -1037,36 +1191,42 @@
               },
             });
 
-            let payload = null;
-            try {
-              payload = await response.json();
-            } catch (_error) {
-              throw new Error(i18n.response_unreadable);
+            const payload = await readJson(response);
+
+            if (response.status === 202 && payload.ok && payload.job_id) {
+              currentJobId = payload.job_id;
+              renderFlash("success", payload.message || i18n.job_started);
+              updateBrowserUrl(currentJobId, null);
+              schedulePoll(0);
+              return;
             }
 
-            if (!response.ok || !payload.ok) {
-              throw new Error(payload.error || i18n.generation_failed.replace("__details__", ""));
+            if (response.status === 409 && payload.job_id) {
+              currentJobId = payload.job_id;
+              renderFlash("error", payload.error || i18n.job_running);
+              updateBrowserUrl(currentJobId, null);
+              schedulePoll(0);
+              return;
             }
 
-            renderFlash("success", payload.message || i18n.created_fallback);
-            renderDownloads(payload.posters || []);
-            renderFeaturedPoster(
-              (payload.generated && payload.generated[0]) || (payload.posters && payload.posters[0]) || null,
-              payload.generated || []
-            );
-            if (posterCount) {
-              posterCount.textContent = String((payload.posters || []).length);
-            }
+            throw new Error(payload.error || i18n.generation_failed.replace("__details__", ""));
           } catch (error) {
             console.error("Generate request failed", error);
+            clearPollTimer();
+            currentJobId = null;
             const message = error instanceof Error
               ? (isNetworkFailure(error) ? i18n.network_failed : error.message)
               : i18n.generation_failed.replace("__details__", "");
             renderFlash("error", message);
-          } finally {
             stopLoading();
+            updateBrowserUrl(null, null);
           }
         });
+
+        if (initialJobId) {
+          startLoading(0);
+          schedulePoll(0);
+        }
       })();
     </script>
   </body>
