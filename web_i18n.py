@@ -45,6 +45,22 @@ TEXTS: dict[str, dict[str, Any]] = {
                 "Nutze Stadt und Land für das normale Geocoding oder überschreibe den Mittelpunkt "
                 "mit eigenen Koordinaten."
             ),
+            "location_section": "Standort",
+            "location_note": "Stadt und Land werden für das Geocoding und die Kartenmitte verwendet.",
+            "style_section": "Stil & Ausgabe",
+            "style_note": "Wähle Theme und Dateiformat. Die Theme-Karten sind eine schnelle Vorauswahl.",
+            "size_section": "Größe",
+            "size_note_intro": "Regler und Eingabefelder bleiben synchron. Maximal 50,8 cm pro Seite.",
+            "advanced_section": "Erweiterte Einstellungen",
+            "advanced_note": "Koordinaten, Anzeige-Overrides und Schriftfamilie nur bei Bedarf setzen.",
+            "advanced_toggle": "Erweiterte Einstellungen öffnen",
+            "extras_section": "Extras",
+            "extras_note": "Optionale Serienerstellung über alle verfügbaren Themes dieser Stadt.",
+            "theme_quick_pick": "Theme-Schnellauswahl",
+            "theme_quick_pick_note": (
+                "Das Dropdown bleibt die echte Formularquelle. Die Karten setzen nur den Theme-Wert."
+            ),
+            "ratio_label": "Format-Vorschau",
             "city": "Stadt",
             "city_placeholder": "Paris",
             "country": "Land",
@@ -187,6 +203,22 @@ TEXTS: dict[str, dict[str, Any]] = {
                 "Use city and country for standard geocoding, or override the center point with "
                 "custom coordinates."
             ),
+            "location_section": "Location",
+            "location_note": "City and country are used for geocoding and the map center point.",
+            "style_section": "Style & Output",
+            "style_note": "Choose a theme and file format. Theme cards act as a quick visual picker.",
+            "size_section": "Size",
+            "size_note_intro": "Sliders and input fields stay in sync. Maximum 50.8 cm per side.",
+            "advanced_section": "Advanced Settings",
+            "advanced_note": "Only set coordinates, display overrides, and font family when needed.",
+            "advanced_toggle": "Open advanced settings",
+            "extras_section": "Extras",
+            "extras_note": "Optional batch generation across every available theme for this city.",
+            "theme_quick_pick": "Theme quick pick",
+            "theme_quick_pick_note": (
+                "The dropdown remains the actual form source. The cards only update the theme value."
+            ),
+            "ratio_label": "Format preview",
             "city": "City",
             "city_placeholder": "Paris",
             "country": "Country",
