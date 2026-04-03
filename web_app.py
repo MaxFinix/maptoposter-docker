@@ -9,6 +9,7 @@ from dataclasses import asdict, dataclass, replace
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import signal
 import subprocess
@@ -31,6 +32,7 @@ from poster_service import (
     get_safe_poster_path,
     get_theme_catalog,
     list_generated_files,
+    load_poster_history,
     parse_coordinate,
 )
 from web_i18n import (
@@ -41,6 +43,7 @@ from web_i18n import (
     build_generation_failure_message,
     build_js_text,
     format_created_message,
+    format_duration_label,
     format_metric_input,
     format_modified_label,
     get_text_bundle,
@@ -72,6 +75,7 @@ JOB_POLL_INTERVAL_MS = 2000
 JOB_LOCK = threading.Lock()
 JOBS_ROOT = CACHE_DIR / "jobs"
 ACTIVE_JOB_ID: str | None = None
+OUTPUT_FILENAME_TIMESTAMP_RE = re.compile(r"_\d{8}_\d{6}$")
 
 
 @dataclass(slots=True)
@@ -86,6 +90,8 @@ class GenerationJob:
     error: str | None
     generated_names: list[str]
     step: str | None
+    duration_seconds: int | None
+    duration_label: str | None
     status_file: Path
     output_dir: Path
     options_file: Path
@@ -211,6 +217,8 @@ def job_status_payload(job: GenerationJob) -> dict[str, object]:
         "finished_at": job.finished_at,
         "updated_at": time.time(),
         "can_cancel": job.status == "running",
+        "duration_seconds": job.duration_seconds,
+        "duration_label": job.duration_label,
     }
 
 
@@ -243,6 +251,16 @@ def apply_status_payload(job: GenerationJob, payload: dict[str, object]) -> None
         job.error = payload.get("error") if isinstance(payload.get("error"), str) else None
     if "step" in payload:
         job.step = payload.get("step") if isinstance(payload.get("step"), str) else None
+    if isinstance(payload.get("duration_seconds"), (int, float)):
+        job.duration_seconds = max(0, int(payload["duration_seconds"]))
+    elif payload.get("duration_seconds") is None:
+        job.duration_seconds = None
+    if "duration_label" in payload:
+        job.duration_label = (
+            payload.get("duration_label")
+            if isinstance(payload.get("duration_label"), str)
+            else None
+        )
     if isinstance(payload.get("generated_names"), list):
         job.generated_names = [str(item) for item in payload["generated_names"]]
     if isinstance(payload.get("created_at"), (int, float)):
@@ -263,6 +281,8 @@ def finalize_job_canceled(job: GenerationJob) -> None:
     job.finished_at = time.time()
     job.step = None
     job.generated_names = []
+    job.duration_seconds = None
+    job.duration_label = None
     cleanup_job_artifacts(job)
     persist_job_status(job)
 
@@ -272,6 +292,8 @@ def finalize_job_failed(job: GenerationJob, error_message: str) -> None:
     job.message = None
     job.error = error_message
     job.finished_at = time.time()
+    job.duration_seconds = None
+    job.duration_label = None
     cleanup_job_artifacts(job)
     persist_job_status(job)
 
@@ -371,6 +393,13 @@ def build_job_payload(
     request: Request,
     job: GenerationJob,
 ) -> dict[str, object]:
+    duration_seconds = job.duration_seconds
+    duration_label = job.duration_label
+    if duration_seconds is None and job.finished_at is not None:
+        duration_seconds = max(0, int(round(job.finished_at - job.started_at)))
+    if duration_label is None and duration_seconds is not None and job.status == "succeeded":
+        duration_label = format_duration_label(duration_seconds, job.language)
+
     payload: dict[str, object] = {
         "ok": True,
         "job_id": job.id,
@@ -384,6 +413,8 @@ def build_job_payload(
             0,
             int(((job.finished_at or time.time()) - job.started_at)),
         ),
+        "duration_seconds": duration_seconds,
+        "duration_label": duration_label,
     }
 
     if job.status in {"running", "canceling", "failed", "canceled"}:
@@ -423,6 +454,8 @@ def start_generation_job(
         error=None,
         generated_names=[],
         step=None,
+        duration_seconds=None,
+        duration_label=None,
         status_file=status_file,
         output_dir=output_dir,
         options_file=options_file,
@@ -538,15 +571,46 @@ def wants_json_response(request: Request) -> bool:
     return "application/json" in accept.lower()
 
 
+def build_localized_theme_map(language: str) -> dict[str, dict[str, str]]:
+    return {
+        theme["name"]: theme
+        for theme in localize_theme_catalog(get_theme_catalog(), language)
+    }
+
+
+def infer_theme_name_from_filename(filename: str, known_themes: set[str]) -> str | None:
+    stem = Path(filename).stem
+    if OUTPUT_FILENAME_TIMESTAMP_RE.search(stem) is None:
+        return None
+
+    for theme_name in sorted(known_themes, key=len, reverse=True):
+        if re.search(rf"_{re.escape(theme_name)}_\d{{8}}_\d{{6}}$", stem):
+            return theme_name
+    return None
+
+
 def enrich_posters(
     request: Request,
     posters: list[dict[str, object]],
     language: str,
 ) -> list[dict[str, object]]:
+    history = load_poster_history()
+    localized_theme_map = build_localized_theme_map(language)
+    known_themes = set(localized_theme_map)
     enriched = []
     for poster in posters:
         name = str(poster["name"])
         media_type = str(poster["media_type"])
+        theme_name = infer_theme_name_from_filename(name, known_themes)
+        history_entry = history.get(name, {})
+        duration_seconds = history_entry.get("duration_seconds")
+        duration_label = None
+        if isinstance(duration_seconds, (int, float)):
+            duration_seconds = max(0, int(duration_seconds))
+            duration_label = format_duration_label(duration_seconds, language)
+        else:
+            duration_seconds = None
+
         enriched.append(
             {
                 key: value
@@ -557,6 +621,14 @@ def enrich_posters(
                 "modified_label": format_modified_label(
                     float(poster["modified_timestamp"]), language
                 ),
+                "theme_name": theme_name,
+                "theme_label": (
+                    localized_theme_map[theme_name]["display_name"]
+                    if theme_name and theme_name in localized_theme_map
+                    else None
+                ),
+                "duration_seconds": duration_seconds,
+                "duration_label": duration_label,
                 "preview_url": relative_url_for("preview_poster", filename=name),
                 "open_url": relative_url_for("preview_poster", filename=name),
                 "download_url": relative_url_for("download_poster", filename=name),

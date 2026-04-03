@@ -28,11 +28,14 @@ TEXTS: dict[str, dict[str, Any]] = {
             "en_long": "English",
         },
         "hero": {
+            "eyebrow": "Lokales Poster-Studio",
             "copy": (
                 "Erstelle druckbare Stadtplakate direkt im Browser, speichere jedes Poster "
                 "in deinem Unraid-Appdata-Ordner und lade fertige Dateien herunter, ohne im "
                 "Dateisystem zu suchen."
             ),
+            "themes_short": "Themes",
+            "files_short": "Poster",
             "themes_stat": "Verfügbare Themes aus der eingebauten JSON-Bibliothek.",
             "files_stat": "Generierte Dateien, die aktuell im Webinterface verfügbar sind.",
         },
@@ -86,12 +89,16 @@ TEXTS: dict[str, dict[str, Any]] = {
                 "Die neueste erzeugte Datei erscheint hier sofort, damit du sie direkt ansehen "
                 "und herunterladen kannst."
             ),
+            "eyebrow": "Poster-Bühne",
             "ready": "Fertig",
             "preview_unavailable_title": "Für diesen Dateityp ist keine eingebettete Vorschau verfügbar.",
             "preview_unavailable_note": "Nutze Öffnen oder Herunterladen, um {name} anzusehen.",
             "modified": "Geändert",
             "size": "Größe",
             "type": "Typ",
+            "theme": "Theme",
+            "render_time": "Render-Zeit",
+            "job_duration": "Laufzeit des Durchgangs",
             "empty": (
                 "Erstelle ein Poster, um hier eine große Vorschau und direkte "
                 "Download-Aktionen zu sehen."
@@ -99,14 +106,16 @@ TEXTS: dict[str, dict[str, Any]] = {
             "also_created": "Zusätzlich erstellt",
         },
         "downloads": {
-            "title": "Downloads",
+            "title": "Historie & Downloads",
+            "summary": "Historie & Downloads",
             "description": (
-                "Neueste Dateien stehen oben. Jede Datei kann direkt auf dieser Seite geöffnet "
-                "oder heruntergeladen werden."
+                "Alle fertigen Poster bleiben hier erreichbar. Neueste Dateien stehen oben und "
+                "lassen sich direkt öffnen oder herunterladen."
             ),
             "file": "Datei",
             "modified": "Geändert",
             "size": "Größe",
+            "duration": "Render-Zeit",
             "actions": "Aktionen",
             "empty": "Es wurden noch keine Poster erstellt. Erstelle links das erste Poster.",
         },
@@ -161,11 +170,14 @@ TEXTS: dict[str, dict[str, Any]] = {
             "en_long": "English",
         },
         "hero": {
+            "eyebrow": "Local poster studio",
             "copy": (
                 "Generate printable city map artwork in the browser, keep every poster in your "
                 "Unraid appdata folder, and download finished files without digging through the "
                 "filesystem."
             ),
+            "themes_short": "Themes",
+            "files_short": "Posters",
             "themes_stat": "Available themes from the bundled JSON library.",
             "files_stat": "Generated files currently available from the web interface.",
         },
@@ -219,24 +231,30 @@ TEXTS: dict[str, dict[str, Any]] = {
                 "The newest generated file appears here right away so you can preview it and "
                 "download it without browsing the filesystem."
             ),
+            "eyebrow": "Poster stage",
             "ready": "Ready to use",
             "preview_unavailable_title": "Preview is not embedded for this file type.",
             "preview_unavailable_note": "Use Open or Download to inspect {name}.",
             "modified": "Modified",
             "size": "Size",
             "type": "Type",
+            "theme": "Theme",
+            "render_time": "Render time",
+            "job_duration": "Total run time",
             "empty": "Generate a poster to show a large preview and direct download actions here.",
             "also_created": "Also created",
         },
         "downloads": {
-            "title": "Downloads",
+            "title": "History & Downloads",
+            "summary": "History & Downloads",
             "description": (
-                "Newest files appear first. Every file can be opened inline or downloaded "
-                "directly from this page."
+                "Every finished poster stays available here. Newest files appear first and can "
+                "be opened or downloaded directly from this page."
             ),
             "file": "File",
             "modified": "Modified",
             "size": "Size",
+            "duration": "Render time",
             "actions": "Actions",
             "empty": "No generated posters yet. Create the first one from the form on the left.",
         },
@@ -414,16 +432,21 @@ def build_js_text(language: str) -> dict[str, str]:
         "open": text["buttons"]["open"],
         "download": text["buttons"]["download"],
         "cancel": text["buttons"]["cancel"],
+        "stage_label": text["result"]["eyebrow"],
         "ready": text["result"]["ready"],
         "preview_unavailable_title": text["result"]["preview_unavailable_title"],
         "preview_unavailable_note": text["result"]["preview_unavailable_note"],
         "modified": text["result"]["modified"],
         "size": text["result"]["size"],
         "type": text["result"]["type"],
+        "theme": text["result"]["theme"],
+        "render_time": text["result"]["render_time"],
+        "job_duration": text["result"]["job_duration"],
         "also_created": text["result"]["also_created"],
         "latest_result_empty": text["result"]["empty"],
         "downloads_empty": text["downloads"]["empty"],
         "file": text["downloads"]["file"],
+        "history_duration": text["downloads"]["duration"],
         "actions": text["downloads"]["actions"],
         "elapsed": text["loading"]["elapsed"],
         "response_unreadable": text["messages"]["response_unreadable"],
@@ -487,6 +510,25 @@ def build_generation_failure_message(details: str, language: str) -> str:
     return get_text_bundle(language)["messages"]["generation_failed_prefix"].format(
         details=details
     )
+
+
+def format_duration_label(total_seconds: int | float, language: str) -> str:
+    seconds = max(0, int(total_seconds))
+    hours, remainder = divmod(seconds, 3600)
+    minutes, secs = divmod(remainder, 60)
+
+    if normalize_language(language) == "de":
+        if hours:
+            return f"{hours} Std {minutes:02d} Min"
+        if minutes:
+            return f"{minutes} Min {secs:02d} Sek"
+        return f"{secs} Sek"
+
+    if hours:
+        return f"{hours} hr {minutes:02d} min"
+    if minutes:
+        return f"{minutes} min {secs:02d} sec"
+    return f"{secs} sec"
 
 
 def localize_progress_step(step: str | None, language: str) -> str | None:

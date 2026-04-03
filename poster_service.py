@@ -97,6 +97,7 @@ UNRAID_PERMISSION_HINT = (
 
 CACHE_DIR = _path_from_env("CACHE_DIR", DEFAULT_CACHE_DIR)
 POSTERS_DIR = _path_from_env("POSTERS_DIR", DEFAULT_POSTERS_DIR)
+POSTER_HISTORY_FILE = CACHE_DIR / "poster_history.json"
 ProgressCallback = Callable[[str], None]
 
 
@@ -854,6 +855,70 @@ def format_bytes(size_bytes: int) -> str:
             return f"{size:.1f} {unit}"
         size /= 1024
     return f"{size_bytes} B"
+
+
+def load_poster_history() -> dict[str, dict[str, Any]]:
+    if not POSTER_HISTORY_FILE.exists():
+        return {}
+
+    try:
+        with POSTER_HISTORY_FILE.open("r", encoding="utf-8") as handle:
+            raw = json.load(handle)
+    except (OSError, json.JSONDecodeError) as exc:
+        print(f"Poster history read failed: {exc}", flush=True)
+        return {}
+
+    if not isinstance(raw, dict):
+        return {}
+
+    history: dict[str, dict[str, Any]] = {}
+    for name, payload in raw.items():
+        if not isinstance(name, str) or not isinstance(payload, dict):
+            continue
+
+        entry: dict[str, Any] = {}
+        if isinstance(payload.get("job_id"), str):
+            entry["job_id"] = payload["job_id"]
+        if isinstance(payload.get("duration_seconds"), (int, float)):
+            entry["duration_seconds"] = max(0, int(payload["duration_seconds"]))
+        if isinstance(payload.get("created_at"), (int, float)):
+            entry["created_at"] = float(payload["created_at"])
+        if isinstance(payload.get("finished_at"), (int, float)):
+            entry["finished_at"] = float(payload["finished_at"])
+
+        if entry:
+            history[name] = entry
+
+    return history
+
+
+def record_poster_history(
+    generated_names: list[str],
+    *,
+    job_id: str,
+    duration_seconds: int,
+    created_at: float,
+    finished_at: float,
+) -> None:
+    try:
+        history = load_poster_history()
+        for name in generated_names:
+            history[name] = {
+                "job_id": job_id,
+                "duration_seconds": max(0, int(duration_seconds)),
+                "created_at": float(created_at),
+                "finished_at": float(finished_at),
+            }
+
+        POSTER_HISTORY_FILE.parent.mkdir(parents=True, exist_ok=True)
+        temp_path = POSTER_HISTORY_FILE.with_suffix(".tmp")
+        temp_path.write_text(
+            json.dumps(history, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        temp_path.replace(POSTER_HISTORY_FILE)
+    except OSError as exc:
+        print(f"Poster history write failed: {exc}", flush=True)
 
 
 def get_poster_media_type(path: Path) -> str:

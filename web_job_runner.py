@@ -13,10 +13,11 @@ import time
 from dataclasses import asdict
 from pathlib import Path
 
-from poster_service import POSTERS_DIR, PosterOptions, generate_posters
+from poster_service import POSTERS_DIR, PosterOptions, generate_posters, record_poster_history
 from web_i18n import (
     build_generation_failure_message,
     format_created_message,
+    format_duration_label,
     get_text_bundle,
     localize_progress_step,
     translate_error_message,
@@ -68,6 +69,8 @@ def main() -> int:
         "finished_at": None,
         "updated_at": started_at,
         "can_cancel": True,
+        "duration_seconds": None,
+        "duration_label": None,
         "options": asdict(options),
     }
 
@@ -108,6 +111,16 @@ def main() -> int:
             finalized_paths.append(final_path)
             final_names.append(final_path.name)
 
+        finished_at = time.time()
+        duration_seconds = max(0, int(round(finished_at - started_at)))
+        duration_label = format_duration_label(duration_seconds, language)
+        record_poster_history(
+            final_names,
+            job_id=args.job_id,
+            duration_seconds=duration_seconds,
+            created_at=started_at,
+            finished_at=finished_at,
+        )
         message = format_created_message(len(final_names), ", ".join(final_names), language)
         shutil.rmtree(output_dir, ignore_errors=True)
         persist(
@@ -116,8 +129,10 @@ def main() -> int:
             error=None,
             step=localize_progress_step("Completed", language),
             generated_names=final_names,
-            finished_at=time.time(),
+            finished_at=finished_at,
             can_cancel=False,
+            duration_seconds=duration_seconds,
+            duration_label=duration_label,
         )
         return 0
     except KeyboardInterrupt:
@@ -135,6 +150,8 @@ def main() -> int:
             generated_names=[],
             finished_at=time.time(),
             can_cancel=False,
+            duration_seconds=None,
+            duration_label=None,
         )
         return 130 if canceled else 1
     except ValueError as exc:
@@ -152,6 +169,8 @@ def main() -> int:
             generated_names=[],
             finished_at=time.time(),
             can_cancel=False,
+            duration_seconds=None,
+            duration_label=None,
         )
         return 1
     except Exception as exc:
@@ -172,6 +191,8 @@ def main() -> int:
             generated_names=[],
             finished_at=time.time(),
             can_cancel=False,
+            duration_seconds=None,
+            duration_label=None,
         )
         return 1
 
