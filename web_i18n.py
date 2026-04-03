@@ -120,6 +120,10 @@ TEXTS: dict[str, dict[str, Any]] = {
             "created_fallback": "Poster erstellt.",
             "generation_failed_prefix": "Poster-Erstellung fehlgeschlagen: {details}",
             "response_unreadable": "Die Serverantwort konnte nicht gelesen werden.",
+            "network_failed": (
+                "Die Verbindung zur App wurde während der Poster-Erstellung unterbrochen. "
+                "Bitte Seite neu laden und erneut versuchen."
+            ),
         },
         "errors": {
             "whole_number": "{field} muss eine ganze Zahl sein.",
@@ -232,6 +236,10 @@ TEXTS: dict[str, dict[str, Any]] = {
             "created_fallback": "Poster created.",
             "generation_failed_prefix": "Poster generation failed: {details}",
             "response_unreadable": "The server returned an unreadable response.",
+            "network_failed": (
+                "The connection to the app was interrupted while generating the poster. "
+                "Please reload the page and try again."
+            ),
         },
         "errors": {
             "whole_number": "{field} must be a whole number.",
@@ -366,6 +374,7 @@ def build_js_text(language: str) -> dict[str, str]:
         "actions": text["downloads"]["actions"],
         "elapsed": text["loading"]["elapsed"],
         "response_unreadable": text["messages"]["response_unreadable"],
+        "network_failed": text["messages"]["network_failed"],
         "generation_failed": text["messages"]["generation_failed_prefix"].format(
             details="__details__"
         ),

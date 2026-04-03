@@ -601,7 +601,7 @@
             {% endif %}
           </div>
 
-          <form id="poster-form" method="post" action="{{ request.url_for('generate') }}">
+          <form id="poster-form" method="post" action="/generate">
             <input type="hidden" name="lang" value="{{ lang }}" />
             <div class="grid">
               <label>
@@ -890,6 +890,18 @@
           }
         }
 
+        function isNetworkFailure(error) {
+          if (!(error instanceof Error)) {
+            return false;
+          }
+
+          if (error instanceof TypeError) {
+            return true;
+          }
+
+          return /load failed|failed to fetch|networkerror/i.test(error.message);
+        }
+
         function renderActionLinks(poster) {
           const fileName = escapeHtml(poster.name);
           const openUrl = escapeHtml(poster.open_url);
@@ -1046,8 +1058,9 @@
               posterCount.textContent = String((payload.posters || []).length);
             }
           } catch (error) {
+            console.error("Generate request failed", error);
             const message = error instanceof Error
-              ? error.message
+              ? (isNetworkFailure(error) ? i18n.network_failed : error.message)
               : i18n.generation_failed.replace("__details__", "");
             renderFlash("error", message);
           } finally {

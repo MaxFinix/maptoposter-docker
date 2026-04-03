@@ -128,14 +128,20 @@ def with_language_cookie(response: Response, language: str) -> Response:
     return response
 
 
+def relative_url_for(route_name: str, **path_params: str) -> str:
+    return str(app.url_path_for(route_name, **path_params))
+
+
 def build_language_urls(request: Request) -> dict[str, str]:
     query_params = dict(request.query_params)
     query_params.pop("message", None)
     query_params.pop("error", None)
 
+    base_path = relative_url_for("index")
     urls: dict[str, str] = {}
     for language in ("de", "en"):
-        urls[language] = str(request.url.include_query_params(**(query_params | {"lang": language})))
+        query = query_params | {"lang": language}
+        urls[language] = base_path if not query else f"{base_path}?{urlencode(query)}"
     return urls
 
 
@@ -181,7 +187,7 @@ def redirect_to_index(
     if focus_name:
         query["focus"] = focus_name
 
-    url = str(request.url_for("index"))
+    url = relative_url_for("index")
     if query:
         url = f"{url}?{urlencode(query)}"
 
@@ -212,9 +218,9 @@ def enrich_posters(
                 "modified_label": format_modified_label(
                     float(poster["modified_timestamp"]), language
                 ),
-                "preview_url": str(request.url_for("preview_poster", filename=name)),
-                "open_url": str(request.url_for("preview_poster", filename=name)),
-                "download_url": str(request.url_for("download_poster", filename=name)),
+                "preview_url": relative_url_for("preview_poster", filename=name),
+                "open_url": relative_url_for("preview_poster", filename=name),
+                "download_url": relative_url_for("download_poster", filename=name),
                 "is_previewable": media_type.startswith("image/") or media_type == "application/pdf",
                 "is_image_previewable": media_type.startswith("image/"),
                 "is_pdf": media_type == "application/pdf",
@@ -284,6 +290,14 @@ async def generate(
 ) -> RedirectResponse | JSONResponse:
     language = resolve_language(request, lang)
     text = get_text_bundle(language)
+    client_host = request.client.host if request.client else "unknown"
+
+    print(
+        "Generate request started "
+        f"from {client_host}: city={city!r}, country={country!r}, theme={theme!r}, "
+        f"all_themes={all_themes == 'on'}, format={output_format!r}, lang={language!r}",
+        flush=True,
+    )
 
     try:
         options = PosterOptions(
@@ -305,6 +319,10 @@ async def generate(
         generated = await run_in_threadpool(generate_posters, options)
     except ValueError as exc:
         localized_error = translate_error_message(str(exc), language)
+        print(
+            f"Generate request validation failed from {client_host}: {localized_error}",
+            flush=True,
+        )
         if wants_json_response(request):
             payload = build_generate_payload(request, set(), language)
             response = JSONResponse(
@@ -319,6 +337,10 @@ async def generate(
             translate_error_message(str(exc), language),
             language,
         )
+        print(
+            f"Generate request failed from {client_host}: {exc}",
+            flush=True,
+        )
         if wants_json_response(request):
             payload = build_generate_payload(request, set(), language)
             response = JSONResponse(
@@ -332,6 +354,10 @@ async def generate(
     names = ", ".join(path.name for path in generated)
     generated_names = {path.name for path in generated}
     message = format_created_message(len(generated), names, language)
+    print(
+        f"Generate request completed from {client_host}: {len(generated)} file(s) -> {names}",
+        flush=True,
+    )
 
     if wants_json_response(request):
         payload = build_generate_payload(request, generated_names, language)
