@@ -741,6 +741,70 @@
         gap: 12px;
       }
 
+      .theme-picker-shell {
+        border-radius: 22px;
+        border: 1px solid var(--line);
+        background: rgba(13, 15, 24, 0.62);
+        overflow: hidden;
+      }
+
+      .theme-picker-shell summary {
+        list-style: none;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        cursor: pointer;
+        padding: 16px 18px;
+      }
+
+      .theme-picker-shell summary::-webkit-details-marker {
+        display: none;
+      }
+
+      .theme-picker-shell[open] summary {
+        border-bottom: 1px solid var(--line);
+      }
+
+      .theme-picker-summary {
+        display: grid;
+        gap: 10px;
+        min-width: 0;
+      }
+
+      .theme-summary-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+
+      .theme-summary-pill {
+        display: inline-flex;
+        align-items: center;
+        min-width: 0;
+        max-width: 100%;
+        padding: 8px 12px;
+        border-radius: 999px;
+        background: rgba(139, 92, 246, 0.14);
+        border: 1px solid rgba(167, 139, 250, 0.2);
+        color: #ddd6fe;
+        font-size: 0.84rem;
+        font-weight: 700;
+      }
+
+      .theme-summary-description {
+        color: var(--muted);
+        font-size: 0.84rem;
+        line-height: 1.45;
+      }
+
+      .theme-picker-content {
+        display: grid;
+        gap: 14px;
+        padding: 18px;
+      }
+
       .theme-card {
         --theme-start: rgba(139, 92, 246, 0.28);
         --theme-end: rgba(96, 165, 250, 0.16);
@@ -1508,12 +1572,25 @@
                 <p>{{ text.form.style_note }}</p>
               </div>
 
+              {% set theme_summary = namespace(display=form.theme, description="") %}
+              {% for theme in themes %}
+                {% if theme.name == form.theme %}
+                  {% set theme_summary.display = theme.display_name %}
+                  {% set theme_summary.description = theme.description %}
+                {% endif %}
+              {% endfor %}
+
               <div class="grid">
                 <label class="field">
                   <span class="field-label">{{ text.form.theme }}</span>
                   <select class="native-select" name="theme">
                     {% for theme in themes %}
-                    <option value="{{ theme.name }}" {% if form.theme == theme.name %}selected{% endif %}>
+                    <option
+                      value="{{ theme.name }}"
+                      data-display-name="{{ theme.display_name }}"
+                      data-description="{{ theme.description }}"
+                      {% if form.theme == theme.name %}selected{% endif %}
+                    >
                       {{ theme.display_name }}{% if theme.description %} - {{ theme.description }}{% endif %}
                     </option>
                     {% endfor %}
@@ -1529,27 +1606,46 @@
                 </label>
               </div>
 
-              <div class="section-head">
-                <span class="section-kicker">{{ text.form.theme_quick_pick }}</span>
-                <p>{{ text.form.theme_quick_pick_note }}</p>
-              </div>
+              <details class="theme-picker-shell">
+                <summary>
+                  <div class="theme-picker-summary">
+                    <div class="section-head">
+                      <span class="section-kicker">{{ text.form.theme_quick_pick }}</span>
+                      <p>{{ text.form.theme_quick_pick_note }}</p>
+                    </div>
+                    <div class="theme-summary-row">
+                      <span id="theme-summary-label" class="theme-summary-pill">{{ theme_summary.display }}</span>
+                      {% if theme_summary.description %}
+                      <span id="theme-summary-description" class="theme-summary-description">
+                        {{ theme_summary.description }}
+                      </span>
+                      {% else %}
+                      <span id="theme-summary-description" class="theme-summary-description"></span>
+                      {% endif %}
+                    </div>
+                  </div>
+                  <span class="summary-chevron">⌄</span>
+                </summary>
 
-              <div class="theme-card-grid">
-                {% for theme in themes %}
-                <button
-                  type="button"
-                  class="theme-card {% if form.theme == theme.name %}active{% endif %}"
-                  data-theme-value="{{ theme.name }}"
-                  data-theme="{{ theme.name }}"
-                  aria-pressed="{{ 'true' if form.theme == theme.name else 'false' }}"
-                  title="{{ theme.display_name }}"
-                >
-                  <span class="theme-card-swatch" aria-hidden="true"></span>
-                  <strong>{{ theme.display_name }}</strong>
-                  <span>{{ theme.description or theme.name }}</span>
-                </button>
-                {% endfor %}
-              </div>
+                <div class="theme-picker-content">
+                  <div class="theme-card-grid">
+                    {% for theme in themes %}
+                    <button
+                      type="button"
+                      class="theme-card {% if form.theme == theme.name %}active{% endif %}"
+                      data-theme-value="{{ theme.name }}"
+                      data-theme="{{ theme.name }}"
+                      aria-pressed="{{ 'true' if form.theme == theme.name else 'false' }}"
+                      title="{{ theme.display_name }}"
+                    >
+                      <span class="theme-card-swatch" aria-hidden="true"></span>
+                      <strong>{{ theme.display_name }}</strong>
+                      <span>{{ theme.description or theme.name }}</span>
+                    </button>
+                    {% endfor %}
+                  </div>
+                </div>
+              </details>
             </section>
 
             <section class="form-section">
@@ -1813,6 +1909,8 @@
         const historyCount = document.getElementById("history-count");
         const themeSelect = form.querySelector('select[name="theme"]');
         const themeCards = Array.from(form.querySelectorAll("[data-theme-value]"));
+        const themeSummaryLabel = document.getElementById("theme-summary-label");
+        const themeSummaryDescription = document.getElementById("theme-summary-description");
         const widthInput = form.querySelector('input[name="width"]');
         const heightInput = form.querySelector('input[name="height"]');
         const widthRange = document.getElementById("width-range");
@@ -1896,7 +1994,20 @@
         }
 
         function syncThemeCards() {
-          if (!themeSelect || !themeCards.length) {
+          if (!themeSelect) {
+            return;
+          }
+
+          const selectedOption = themeSelect.options[themeSelect.selectedIndex];
+          if (themeSummaryLabel && selectedOption) {
+            themeSummaryLabel.textContent = selectedOption.dataset.displayName || selectedOption.textContent || themeSelect.value;
+          }
+          if (themeSummaryDescription) {
+            themeSummaryDescription.textContent = selectedOption ? (selectedOption.dataset.description || "") : "";
+            themeSummaryDescription.hidden = !themeSummaryDescription.textContent;
+          }
+
+          if (!themeCards.length) {
             return;
           }
 
