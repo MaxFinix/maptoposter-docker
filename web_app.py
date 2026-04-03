@@ -5,10 +5,15 @@ FastAPI application for generating and downloading map posters.
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
-from dataclasses import dataclass, replace
+from dataclasses import asdict, dataclass, replace
+import json
 import os
 from pathlib import Path
+import shutil
+import signal
+import subprocess
 import threading
+import sys
 import time
 from urllib.parse import urlencode
 from uuid import uuid4
@@ -19,9 +24,9 @@ from fastapi.templating import Jinja2Templates
 from starlette.exceptions import HTTPException
 
 from poster_service import (
+    CACHE_DIR,
     PosterOptions,
     ensure_runtime_paths_writable,
-    generate_posters,
     get_poster_media_type,
     get_safe_poster_path,
     get_theme_catalog,
@@ -65,6 +70,7 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(title="MaptoPoster", version="0.3.0", lifespan=lifespan)
 JOB_POLL_INTERVAL_MS = 2000
 JOB_LOCK = threading.Lock()
+JOBS_ROOT = CACHE_DIR / "jobs"
 ACTIVE_JOB_ID: str | None = None
 
 
@@ -79,6 +85,11 @@ class GenerationJob:
     message: str | None
     error: str | None
     generated_names: list[str]
+    step: str | None
+    status_file: Path
+    output_dir: Path
+    options_file: Path
+    process: subprocess.Popen[bytes] | None
 
 
 JOBS: dict[str, GenerationJob] = {}
@@ -160,19 +171,200 @@ def snapshot_job(job: GenerationJob | None) -> GenerationJob | None:
     return replace(job, generated_names=list(job.generated_names))
 
 
-def get_job(job_id: str | None) -> GenerationJob | None:
+def job_dir(job_id: str) -> Path:
+    return JOBS_ROOT / job_id
+
+
+def write_json_file(path: Path, payload: dict[str, object]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = path.with_suffix(".tmp")
+    temp_path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    temp_path.replace(path)
+
+
+def read_json_file(path: Path) -> dict[str, object] | None:
+    if not path.exists():
+        return None
+
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            return json.load(handle)
+    except (OSError, json.JSONDecodeError) as exc:
+        print(f"Failed to read job status file '{path}': {exc}", flush=True)
+        return None
+
+
+def job_status_payload(job: GenerationJob) -> dict[str, object]:
+    return {
+        "job_id": job.id,
+        "language": job.language,
+        "status": job.status,
+        "message": job.message,
+        "error": job.error,
+        "step": job.step,
+        "generated_names": list(job.generated_names),
+        "created_at": job.created_at,
+        "started_at": job.started_at,
+        "finished_at": job.finished_at,
+        "updated_at": time.time(),
+        "can_cancel": job.status == "running",
+    }
+
+
+def persist_job_status(job: GenerationJob) -> None:
+    write_json_file(job.status_file, job_status_payload(job))
+
+
+def cleanup_job_artifacts(job: GenerationJob) -> None:
+    shutil.rmtree(job.output_dir, ignore_errors=True)
+    try:
+        job.options_file.unlink(missing_ok=True)
+    except OSError as exc:
+        print(f"Failed to delete job options file '{job.options_file}': {exc}", flush=True)
+
+
+def apply_status_payload(job: GenerationJob, payload: dict[str, object]) -> None:
+    disk_status = payload.get("status")
+    if (
+        job.status == "canceling"
+        and disk_status == "running"
+    ):
+        job.step = payload.get("step") if isinstance(payload.get("step"), str) else job.step
+        return
+
+    if isinstance(disk_status, str):
+        job.status = disk_status
+    if "message" in payload:
+        job.message = payload.get("message") if isinstance(payload.get("message"), str) else None
+    if "error" in payload:
+        job.error = payload.get("error") if isinstance(payload.get("error"), str) else None
+    if "step" in payload:
+        job.step = payload.get("step") if isinstance(payload.get("step"), str) else None
+    if isinstance(payload.get("generated_names"), list):
+        job.generated_names = [str(item) for item in payload["generated_names"]]
+    if isinstance(payload.get("created_at"), (int, float)):
+        job.created_at = float(payload["created_at"])
+    if isinstance(payload.get("started_at"), (int, float)):
+        job.started_at = float(payload["started_at"])
+    if isinstance(payload.get("finished_at"), (int, float)):
+        job.finished_at = float(payload["finished_at"])
+    elif payload.get("finished_at") is None:
+        job.finished_at = None
+
+
+def finalize_job_canceled(job: GenerationJob) -> None:
+    text = get_text_bundle(job.language)["messages"]
+    job.status = "canceled"
+    job.message = text["job_canceled"]
+    job.error = None
+    job.finished_at = time.time()
+    job.step = None
+    job.generated_names = []
+    cleanup_job_artifacts(job)
+    persist_job_status(job)
+
+
+def finalize_job_failed(job: GenerationJob, error_message: str) -> None:
+    job.status = "failed"
+    job.message = None
+    job.error = error_message
+    job.finished_at = time.time()
+    cleanup_job_artifacts(job)
+    persist_job_status(job)
+
+
+def terminate_job_process(job: GenerationJob) -> None:
+    process = job.process
+    if process is None or process.poll() is not None:
+        return
+
+    try:
+        os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+    except (ProcessLookupError, PermissionError):
+        try:
+            process.terminate()
+        except OSError:
+            return
+
+    try:
+        process.wait(timeout=1.5)
+        return
+    except subprocess.TimeoutExpired:
+        pass
+
+    try:
+        os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+    except (ProcessLookupError, PermissionError):
+        try:
+            process.kill()
+        except OSError:
+            return
+
+    try:
+        process.wait(timeout=1.5)
+    except subprocess.TimeoutExpired:
+        print(f"Timed out while waiting for worker process of job {job.id} to stop", flush=True)
+
+
+def sync_job_state(job_id: str | None) -> GenerationJob | None:
+    global ACTIVE_JOB_ID
+
     if not job_id:
         return None
+
+    with JOB_LOCK:
+        job = JOBS.get(job_id)
+    if job is None:
+        return None
+
+    payload = read_json_file(job.status_file)
+    with JOB_LOCK:
+        current = JOBS.get(job_id)
+        if current is None:
+            return None
+        if payload is not None:
+            apply_status_payload(current, payload)
+        job = current
+
+    process = job.process
+    if process is not None and process.poll() is not None:
+        with JOB_LOCK:
+            current = JOBS.get(job_id)
+            if current is None:
+                return None
+            current.process = None
+            job = current
+
+        if job.status in {"running", "canceling"}:
+            if job.status == "canceling":
+                print(f"Generate job canceled {job.id}", flush=True)
+                finalize_job_canceled(job)
+            else:
+                worker_exited = get_text_bundle(job.language)["messages"]["worker_exited"]
+                error_message = build_generation_failure_message(worker_exited, job.language)
+                print(f"Generate job failed {job.id}: worker exited unexpectedly", flush=True)
+                finalize_job_failed(job, error_message)
+
+    if job.status not in {"running", "canceling"}:
+        with JOB_LOCK:
+            if ACTIVE_JOB_ID == job.id:
+                ACTIVE_JOB_ID = None
 
     with JOB_LOCK:
         return snapshot_job(JOBS.get(job_id))
 
 
+def get_job(job_id: str | None) -> GenerationJob | None:
+    return sync_job_state(job_id)
+
+
 def get_active_job() -> GenerationJob | None:
     with JOB_LOCK:
-        if ACTIVE_JOB_ID is None:
-            return None
-        return snapshot_job(JOBS.get(ACTIVE_JOB_ID))
+        active_job_id = ACTIVE_JOB_ID
+    return sync_job_state(active_job_id)
 
 
 def build_job_payload(
@@ -180,87 +372,25 @@ def build_job_payload(
     job: GenerationJob,
 ) -> dict[str, object]:
     payload: dict[str, object] = {
-        "ok": job.status != "failed",
+        "ok": True,
         "job_id": job.id,
         "status": job.status,
         "lang": job.language,
         "message": job.message,
+        "error": job.error,
+        "step": job.step,
+        "can_cancel": job.status == "running",
+        "elapsed_seconds": max(
+            0,
+            int(((job.finished_at or time.time()) - job.started_at)),
+        ),
     }
 
-    if job.status == "running":
-        payload["elapsed_seconds"] = max(0, int(time.time() - job.started_at))
+    if job.status in {"running", "canceling", "failed", "canceled"}:
         return payload
 
-    if job.status == "failed":
-        payload["error"] = job.error
-        return payload
-
-    payload["elapsed_seconds"] = (
-        max(0, int((job.finished_at or time.time()) - job.started_at))
-    )
     payload.update(build_generate_payload(request, set(job.generated_names), job.language))
     return payload
-
-
-def run_generation_job(job_id: str, options: PosterOptions, client_host: str) -> None:
-    global ACTIVE_JOB_ID
-
-    job = get_job(job_id)
-    if job is None:
-        return
-
-    try:
-        generated = generate_posters(options)
-    except ValueError as exc:
-        localized_error = translate_error_message(str(exc), job.language)
-        with JOB_LOCK:
-            current = JOBS.get(job_id)
-            if current is not None:
-                current.status = "failed"
-                current.finished_at = time.time()
-                current.error = localized_error
-                current.message = None
-                if ACTIVE_JOB_ID == job_id:
-                    ACTIVE_JOB_ID = None
-        print(f"Generate job failed {job_id} from {client_host}: {localized_error}", flush=True)
-        return
-    except Exception as exc:
-        localized_error = build_generation_failure_message(
-            translate_error_message(str(exc), job.language),
-            job.language,
-        )
-        with JOB_LOCK:
-            current = JOBS.get(job_id)
-            if current is not None:
-                current.status = "failed"
-                current.finished_at = time.time()
-                current.error = localized_error
-                current.message = None
-                if ACTIVE_JOB_ID == job_id:
-                    ACTIVE_JOB_ID = None
-        print(f"Generate job failed {job_id} from {client_host}: {exc}", flush=True)
-        return
-
-    generated_names = [path.name for path in generated]
-    names = ", ".join(generated_names)
-    message = format_created_message(len(generated_names), names, job.language)
-
-    with JOB_LOCK:
-        current = JOBS.get(job_id)
-        if current is not None:
-            current.status = "succeeded"
-            current.finished_at = time.time()
-            current.generated_names = generated_names
-            current.message = message
-            current.error = None
-            if ACTIVE_JOB_ID == job_id:
-                ACTIVE_JOB_ID = None
-
-    print(
-        f"Generate job completed {job_id} from {client_host}: "
-        f"{len(generated_names)} file(s) -> {names}",
-        flush=True,
-    )
 
 
 def start_generation_job(
@@ -269,23 +399,60 @@ def start_generation_job(
     client_host: str,
 ) -> tuple[GenerationJob, bool]:
     global ACTIVE_JOB_ID
+    active_job = get_active_job()
+    if active_job is not None and active_job.status in {"running", "canceling"}:
+        return active_job, False
+
+    job_id = uuid4().hex
+    created_at = time.time()
+    current_job_dir = job_dir(job_id)
+    status_file = current_job_dir / "status.json"
+    output_dir = current_job_dir / "output"
+    options_file = current_job_dir / "options.json"
+    current_job_dir.mkdir(parents=True, exist_ok=True)
+    write_json_file(options_file, asdict(options))
+
+    job = GenerationJob(
+        id=job_id,
+        status="running",
+        created_at=created_at,
+        started_at=created_at,
+        finished_at=None,
+        language=language,
+        message=get_text_bundle(language)["messages"]["job_started"],
+        error=None,
+        generated_names=[],
+        step=None,
+        status_file=status_file,
+        output_dir=output_dir,
+        options_file=options_file,
+        process=None,
+    )
+    persist_job_status(job)
+
+    command = [
+        sys.executable,
+        str(BASE_DIR / "web_job_runner.py"),
+        "--job-id",
+        job.id,
+        "--language",
+        language,
+        "--status-file",
+        str(status_file),
+        "--output-dir",
+        str(output_dir),
+        "--options-file",
+        str(options_file),
+    ]
+    process = subprocess.Popen(
+        command,
+        cwd=str(BASE_DIR),
+        env=os.environ.copy(),
+        start_new_session=True,
+    )
+    job.process = process
 
     with JOB_LOCK:
-        active_job = JOBS.get(ACTIVE_JOB_ID) if ACTIVE_JOB_ID is not None else None
-        if active_job is not None and active_job.status == "running":
-            return snapshot_job(active_job), False
-
-        job = GenerationJob(
-            id=uuid4().hex,
-            status="running",
-            created_at=time.time(),
-            started_at=time.time(),
-            finished_at=None,
-            language=language,
-            message=get_text_bundle(language)["messages"]["job_started"],
-            error=None,
-            generated_names=[],
-        )
         JOBS[job.id] = job
         ACTIVE_JOB_ID = job.id
 
@@ -295,14 +462,6 @@ def start_generation_job(
         f"all_themes={options.all_themes}, format={options.output_format!r}, lang={language!r}",
         flush=True,
     )
-
-    thread = threading.Thread(
-        target=run_generation_job,
-        args=(job.id, options, client_host),
-        daemon=True,
-        name=f"maptoposter-job-{job.id[:8]}",
-    )
-    thread.start()
     return snapshot_job(job), True
 
 
@@ -441,7 +600,7 @@ async def index(request: Request) -> HTMLResponse:
     if requested_job is None:
         if request.query_params.get("job") and error is None:
             error = get_text_bundle(language)["messages"]["job_not_found"]
-    elif requested_job.status == "running":
+    elif requested_job.status in {"running", "canceling"}:
         initial_job_id = requested_job.id
         if message is None:
             message = requested_job.message
@@ -450,6 +609,9 @@ async def index(request: Request) -> HTMLResponse:
             message = requested_job.message
         if focus_name is None and requested_job.generated_names:
             focus_name = requested_job.generated_names[0]
+    elif requested_job.status == "canceled":
+        if message is None:
+            message = requested_job.message
     elif requested_job.status == "failed" and error is None:
         error = requested_job.error
 
@@ -536,6 +698,8 @@ async def generate(
                     "ok": False,
                     "job_id": active_job.id,
                     "status": active_job.status,
+                    "step": active_job.step,
+                    "can_cancel": active_job.status == "running",
                     "error": error_message,
                     "lang": language,
                 },
@@ -558,6 +722,8 @@ async def generate(
                 "job_id": active_job.id,
                 "status": active_job.status,
                 "message": active_job.message,
+                "step": active_job.step,
+                "can_cancel": active_job.status == "running",
                 "lang": language,
             },
             status_code=202,
@@ -592,6 +758,68 @@ async def job_status(request: Request, job_id: str) -> JSONResponse:
 
     response = JSONResponse(build_job_payload(request, job))
     return with_language_cookie(response, job.language)
+
+
+@app.post("/jobs/{job_id}/cancel", response_model=None)
+async def cancel_job(request: Request, job_id: str) -> JSONResponse:
+    job = get_job(job_id)
+    if job is None:
+        language = resolve_language(request)
+        response = JSONResponse(
+            {
+                "ok": False,
+                "job_id": job_id,
+                "status": "missing",
+                "error": get_text_bundle(language)["messages"]["job_not_found"],
+                "lang": language,
+            },
+            status_code=404,
+        )
+        return with_language_cookie(response, language)
+
+    if job.status == "canceling":
+        response = JSONResponse(build_job_payload(request, job), status_code=202)
+        return with_language_cookie(response, job.language)
+
+    if job.status != "running":
+        error_message = get_text_bundle(job.language)["messages"]["job_cancel_unavailable"]
+        response = JSONResponse(
+            {
+                **build_job_payload(request, job),
+                "ok": False,
+                "error": error_message,
+            },
+            status_code=409,
+        )
+        return with_language_cookie(response, job.language)
+
+    with JOB_LOCK:
+        current = JOBS.get(job_id)
+        if current is None:
+            language = resolve_language(request)
+            response = JSONResponse(
+                {
+                    "ok": False,
+                    "job_id": job_id,
+                    "status": "missing",
+                    "error": get_text_bundle(language)["messages"]["job_not_found"],
+                    "lang": language,
+                },
+                status_code=404,
+            )
+            return with_language_cookie(response, language)
+
+        current.status = "canceling"
+        current.message = get_text_bundle(current.language)["messages"]["job_canceling"]
+        current.error = None
+        persist_job_status(current)
+        job = snapshot_job(current)
+
+    print(f"Generate job cancel requested {job_id}", flush=True)
+    terminate_job_process(job)
+    updated_job = get_job(job_id) or job
+    response = JSONResponse(build_job_payload(request, updated_job), status_code=202)
+    return with_language_cookie(response, updated_job.language)
 
 
 @app.get("/files/{filename}")

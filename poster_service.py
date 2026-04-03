@@ -14,7 +14,7 @@ import time
 from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Callable, cast
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -97,6 +97,7 @@ UNRAID_PERMISSION_HINT = (
 
 CACHE_DIR = _path_from_env("CACHE_DIR", DEFAULT_CACHE_DIR)
 POSTERS_DIR = _path_from_env("POSTERS_DIR", DEFAULT_POSTERS_DIR)
+ProgressCallback = Callable[[str], None]
 
 
 def _runtime_paths() -> dict[str, Path]:
@@ -242,12 +243,18 @@ def is_latin_script(text: str | None) -> bool:
     return (latin_count / total_alpha) > 0.8
 
 
-def generate_output_filename(city: str, theme_name: str, output_format: str) -> Path:
-    POSTERS_DIR.mkdir(parents=True, exist_ok=True)
+def generate_output_filename(
+    city: str,
+    theme_name: str,
+    output_format: str,
+    output_dir: Path | None = None,
+) -> Path:
+    target_dir = output_dir or POSTERS_DIR
+    target_dir.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     city_slug = city.lower().replace(" ", "_")
     filename = f"{city_slug}_{theme_name}_{timestamp}.{output_format.lower()}"
-    return POSTERS_DIR / filename
+    return target_dir / filename
 
 
 def get_available_themes() -> list[str]:
@@ -536,6 +543,7 @@ def create_poster(
     display_city: str | None = None,
     display_country: str | None = None,
     fonts: dict[str, str] | None = None,
+    progress_callback: ProgressCallback | None = None,
 ) -> None:
     display_city = display_city or name_label or city
     display_country = display_country or country_label or country
@@ -549,6 +557,8 @@ def create_poster(
         bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt}",
     ) as progress:
         progress.set_description("Downloading street network")
+        if progress_callback:
+            progress_callback("Downloading street network")
         compensated_dist = dist * (max(height, width) / min(height, width)) / 4
         graph = fetch_graph(point, compensated_dist)
         if graph is None:
@@ -556,6 +566,8 @@ def create_poster(
         progress.update(1)
 
         progress.set_description("Downloading water features")
+        if progress_callback:
+            progress_callback("Downloading water features")
         water = fetch_features(
             point,
             compensated_dist,
@@ -565,6 +577,8 @@ def create_poster(
         progress.update(1)
 
         progress.set_description("Downloading parks/green spaces")
+        if progress_callback:
+            progress_callback("Downloading parks/green spaces")
         parks = fetch_features(
             point,
             compensated_dist,
@@ -575,6 +589,8 @@ def create_poster(
 
     print("All data retrieved successfully.")
     print("Rendering map...")
+    if progress_callback:
+        progress_callback("Rendering map")
     fig, ax = plt.subplots(figsize=(width, height), facecolor=theme["bg"])
     ax.set_facecolor(theme["bg"])
     ax.set_position((0.0, 0.0, 1.0, 1.0))
@@ -734,6 +750,8 @@ def create_poster(
     )
 
     print(f"Saving to {output_file}...")
+    if progress_callback:
+        progress_callback("Saving poster")
     save_kwargs: dict[str, Any] = {
         "facecolor": theme["bg"],
         "bbox_inches": "tight",
@@ -766,7 +784,12 @@ def resolve_coordinates(options: PosterOptions) -> tuple[float, float]:
     return get_coordinates(options.city, options.country)
 
 
-def generate_posters(options: PosterOptions) -> list[Path]:
+def generate_posters(
+    options: PosterOptions,
+    *,
+    output_dir: Path | None = None,
+    progress_callback: ProgressCallback | None = None,
+) -> list[Path]:
     ensure_runtime_paths_writable()
     normalized = normalize_options(options)
     available_themes = get_available_themes()
@@ -782,15 +805,24 @@ def generate_posters(options: PosterOptions) -> list[Path]:
             )
         themes_to_generate = [normalized.theme]
 
+    if progress_callback:
+        progress_callback("Loading fonts")
     fonts = resolve_fonts(normalized.font_family)
+    if progress_callback:
+        progress_callback("Looking up coordinates")
     coordinates = resolve_coordinates(normalized)
     generated_files: list[Path] = []
 
     with GENERATION_LOCK:
         for theme_name in themes_to_generate:
+            if progress_callback:
+                progress_callback(f"Preparing theme: {theme_name}")
             theme = load_theme(theme_name)
             output_file = generate_output_filename(
-                normalized.city, theme_name, normalized.output_format
+                normalized.city,
+                theme_name,
+                normalized.output_format,
+                output_dir=output_dir,
             )
             create_poster(
                 normalized.city,
@@ -806,6 +838,7 @@ def generate_posters(options: PosterOptions) -> list[Path]:
                 display_city=normalized.display_city,
                 display_country=normalized.display_country,
                 fonts=fonts,
+                progress_callback=progress_callback,
             )
             generated_files.append(output_file)
 

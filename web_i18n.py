@@ -113,6 +113,7 @@ TEXTS: dict[str, dict[str, Any]] = {
         "buttons": {
             "open": "Öffnen",
             "download": "Herunterladen",
+            "cancel": "Abbrechen",
         },
         "messages": {
             "created_singular": "1 Datei erstellt: {names}",
@@ -120,6 +121,9 @@ TEXTS: dict[str, dict[str, Any]] = {
             "created_fallback": "Poster erstellt.",
             "job_started": "Poster-Erstellung gestartet. Der Status wird automatisch aktualisiert.",
             "job_running": "Es läuft bereits eine Poster-Erstellung. Der Status wird automatisch aktualisiert.",
+            "job_canceling": "Poster-Erstellung wird abgebrochen...",
+            "job_canceled": "Poster-Erstellung wurde abgebrochen.",
+            "job_cancel_unavailable": "Dieser Erstellungsauftrag kann nicht mehr abgebrochen werden.",
             "job_not_found": (
                 "Der Erstellungsauftrag wurde nicht gefunden. Bitte starte die Poster-Erstellung erneut."
             ),
@@ -127,6 +131,7 @@ TEXTS: dict[str, dict[str, Any]] = {
                 "Der Status der Poster-Erstellung konnte gerade nicht geladen werden. "
                 "Es wird erneut versucht."
             ),
+            "worker_exited": "Der Hintergrundprozess wurde unerwartet beendet.",
             "generation_failed_prefix": "Poster-Erstellung fehlgeschlagen: {details}",
             "response_unreadable": "Die Serverantwort konnte nicht gelesen werden.",
             "network_failed": (
@@ -238,6 +243,7 @@ TEXTS: dict[str, dict[str, Any]] = {
         "buttons": {
             "open": "Open",
             "download": "Download",
+            "cancel": "Cancel",
         },
         "messages": {
             "created_singular": "Created 1 file: {names}",
@@ -245,12 +251,16 @@ TEXTS: dict[str, dict[str, Any]] = {
             "created_fallback": "Poster created.",
             "job_started": "Poster generation started. Status updates will appear automatically.",
             "job_running": "A poster generation job is already running. Status updates will continue automatically.",
+            "job_canceling": "Poster generation is being canceled...",
+            "job_canceled": "Poster generation was canceled.",
+            "job_cancel_unavailable": "This generation job can no longer be canceled.",
             "job_not_found": (
                 "The generation job could not be found. Please start the poster generation again."
             ),
             "job_status_retrying": (
                 "The poster generation status could not be loaded just now. Retrying automatically."
             ),
+            "worker_exited": "The background worker process exited unexpectedly.",
             "generation_failed_prefix": "Poster generation failed: {details}",
             "response_unreadable": "The server returned an unreadable response.",
             "network_failed": (
@@ -362,6 +372,31 @@ EXACT_ERROR_MESSAGES = {
     "en": {},
 }
 
+PROGRESS_STEP_TRANSLATIONS = {
+    "de": {
+        "Loading fonts": "Schriften werden geladen",
+        "Looking up coordinates": "Koordinaten werden gesucht",
+        "Downloading street network": "Straßennetz wird geladen",
+        "Downloading water features": "Gewässer werden geladen",
+        "Downloading parks/green spaces": "Parks und Grünflächen werden geladen",
+        "Rendering map": "Karte wird gerendert",
+        "Saving poster": "Poster wird gespeichert",
+        "Finalizing files": "Dateien werden finalisiert",
+        "Completed": "Abgeschlossen",
+    },
+    "en": {
+        "Loading fonts": "Loading fonts",
+        "Looking up coordinates": "Looking up coordinates",
+        "Downloading street network": "Downloading street network",
+        "Downloading water features": "Downloading water features",
+        "Downloading parks/green spaces": "Downloading parks/green spaces",
+        "Rendering map": "Rendering map",
+        "Saving poster": "Saving poster",
+        "Finalizing files": "Finalizing files",
+        "Completed": "Completed",
+    },
+}
+
 
 def normalize_language(value: str | None) -> str:
     if value in SUPPORTED_LANGUAGES:
@@ -378,6 +413,7 @@ def build_js_text(language: str) -> dict[str, str]:
     return {
         "open": text["buttons"]["open"],
         "download": text["buttons"]["download"],
+        "cancel": text["buttons"]["cancel"],
         "ready": text["result"]["ready"],
         "preview_unavailable_title": text["result"]["preview_unavailable_title"],
         "preview_unavailable_note": text["result"]["preview_unavailable_note"],
@@ -394,8 +430,12 @@ def build_js_text(language: str) -> dict[str, str]:
         "network_failed": text["messages"]["network_failed"],
         "job_started": text["messages"]["job_started"],
         "job_running": text["messages"]["job_running"],
+        "job_canceling": text["messages"]["job_canceling"],
+        "job_canceled": text["messages"]["job_canceled"],
+        "job_cancel_unavailable": text["messages"]["job_cancel_unavailable"],
         "job_not_found": text["messages"]["job_not_found"],
         "job_status_retrying": text["messages"]["job_status_retrying"],
+        "worker_exited": text["messages"]["worker_exited"],
         "generation_failed": text["messages"]["generation_failed_prefix"].format(
             details="__details__"
         ),
@@ -447,6 +487,20 @@ def build_generation_failure_message(details: str, language: str) -> str:
     return get_text_bundle(language)["messages"]["generation_failed_prefix"].format(
         details=details
     )
+
+
+def localize_progress_step(step: str | None, language: str) -> str | None:
+    if not step:
+        return None
+
+    lang = normalize_language(language)
+    if step.startswith("Preparing theme: "):
+        theme_name = step.removeprefix("Preparing theme: ")
+        if lang == "de":
+            return f"Theme wird vorbereitet: {theme_name}"
+        return f"Preparing theme: {theme_name}"
+
+    return PROGRESS_STEP_TRANSLATIONS.get(lang, {}).get(step, step)
 
 
 def translate_error_message(message: str, language: str) -> str:

@@ -313,7 +313,7 @@
 
       .loading-panel {
         display: grid;
-        grid-template-columns: auto 1fr;
+        grid-template-columns: auto 1fr auto;
         gap: 14px;
         align-items: center;
         padding: 16px 18px;
@@ -339,6 +339,32 @@
         margin: 4px 0 0;
         font-size: 0.9rem;
         color: var(--muted);
+      }
+
+      .loading-step {
+        min-height: 1.1rem;
+        margin-top: 6px;
+      }
+
+      .loading-actions {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+      }
+
+      .secondary-button {
+        color: var(--accent-strong);
+        background: rgba(255, 255, 255, 0.84);
+        border: 1px solid rgba(165, 84, 47, 0.22);
+        box-shadow: none;
+      }
+
+      .secondary-button:hover {
+        box-shadow: 0 10px 22px rgba(111, 49, 22, 0.12);
+      }
+
+      .secondary-button[hidden] {
+        display: none;
       }
 
       .elapsed {
@@ -503,6 +529,15 @@
         .layout,
         .result-shell {
           grid-template-columns: 1fr;
+        }
+
+        .loading-panel {
+          grid-template-columns: auto 1fr;
+        }
+
+        .loading-actions {
+          grid-column: 1 / -1;
+          justify-content: stretch;
         }
       }
 
@@ -711,7 +746,13 @@
               <div>
                 <strong>{{ text.loading.title }}</strong>
                 <div id="loading-elapsed" class="elapsed">{{ text.loading.initial_elapsed }}</div>
+                <div id="loading-step" class="note loading-step"></div>
                 <p class="loading-copy">{{ text.loading.note }}</p>
+              </div>
+              <div class="loading-actions">
+                <button id="cancel-button" class="secondary-button" type="button" hidden>
+                  {{ text.buttons.cancel }}
+                </button>
               </div>
             </div>
           </form>
@@ -844,7 +885,9 @@
         const flashContainer = document.getElementById("flash-container");
         const loadingState = document.getElementById("loading-state");
         const loadingElapsed = document.getElementById("loading-elapsed");
+        const loadingStep = document.getElementById("loading-step");
         const generateButton = document.getElementById("generate-button");
+        const cancelButton = document.getElementById("cancel-button");
         const resultPanel = document.getElementById("result-panel");
         const generatedList = document.getElementById("generated-list");
         const downloadsContainer = document.getElementById("downloads-container");
@@ -854,6 +897,7 @@
         let pollTimerId = null;
         let startedAt = 0;
         let currentJobId = initialJobId;
+        let currentJobStatus = initialJobId ? "running" : null;
 
         function escapeHtml(value) {
           return String(value).replace(/[&<>"']/g, (char) => ({
@@ -880,15 +924,56 @@
           return languageInput ? languageInput.value : defaultLanguage;
         }
 
+        function getElapsedSeconds() {
+          if (!startedAt) {
+            return 0;
+          }
+          return Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
+        }
+
         function setLoadingElapsed(seconds) {
           startedAt = Date.now() - (seconds * 1000);
           loadingElapsed.textContent = i18n.elapsed.replace("{seconds}", String(seconds));
         }
 
-        function startLoading(elapsedSeconds = 0) {
+        function setLoadingStep(step) {
+          if (!loadingStep) {
+            return;
+          }
+          loadingStep.textContent = step || "";
+          loadingStep.hidden = !step;
+        }
+
+        function updateCancelButton(status, canCancel = status === "running") {
+          if (!cancelButton) {
+            return;
+          }
+
+          if (!status) {
+            cancelButton.hidden = true;
+            cancelButton.disabled = false;
+            cancelButton.textContent = i18n.cancel;
+            return;
+          }
+
+          cancelButton.hidden = false;
+          if (status === "canceling") {
+            cancelButton.disabled = true;
+            cancelButton.textContent = i18n.job_canceling;
+            return;
+          }
+
+          cancelButton.disabled = !canCancel;
+          cancelButton.textContent = i18n.cancel;
+        }
+
+        function startLoading(elapsedSeconds = 0, step = "", status = "running", canCancel = status === "running") {
+          currentJobStatus = status;
           generateButton.disabled = true;
           loadingState.hidden = false;
           setLoadingElapsed(elapsedSeconds);
+          setLoadingStep(step);
+          updateCancelButton(status, canCancel);
           if (timerId !== null) {
             window.clearInterval(timerId);
           }
@@ -899,8 +984,12 @@
         }
 
         function stopLoading() {
+          currentJobStatus = null;
           generateButton.disabled = false;
           loadingState.hidden = true;
+          setLoadingStep("");
+          updateCancelButton(null);
+          startedAt = 0;
           if (timerId !== null) {
             window.clearInterval(timerId);
             timerId = null;
@@ -1136,26 +1225,55 @@
             }
 
             if (payload.status === "running") {
+              currentJobStatus = "running";
               currentJobId = payload.job_id || jobId;
-              setLoadingElapsed(typeof payload.elapsed_seconds === "number" ? payload.elapsed_seconds : 0);
-              if (loadingState.hidden || timerId === null) {
-                startLoading(typeof payload.elapsed_seconds === "number" ? payload.elapsed_seconds : 0);
-              }
+              startLoading(
+                typeof payload.elapsed_seconds === "number" ? payload.elapsed_seconds : 0,
+                payload.step || "",
+                payload.status,
+                Boolean(payload.can_cancel),
+              );
+              updateBrowserUrl(currentJobId, null);
+              schedulePoll();
+              return;
+            }
+
+            if (payload.status === "canceling") {
+              currentJobStatus = "canceling";
+              currentJobId = payload.job_id || jobId;
+              startLoading(
+                typeof payload.elapsed_seconds === "number" ? payload.elapsed_seconds : getElapsedSeconds(),
+                payload.step || "",
+                payload.status,
+                Boolean(payload.can_cancel),
+              );
               updateBrowserUrl(currentJobId, null);
               schedulePoll();
               return;
             }
 
             if (payload.status === "succeeded") {
+              currentJobStatus = "succeeded";
               renderSucceededJob(payload);
               return;
             }
 
             if (payload.status === "failed") {
+              currentJobStatus = "failed";
               currentJobId = null;
               clearPollTimer();
               stopLoading();
               renderFlash("error", payload.error || i18n.generation_failed.replace("__details__", ""));
+              updateBrowserUrl(null, null);
+              return;
+            }
+
+            if (payload.status === "canceled") {
+              currentJobStatus = "canceled";
+              currentJobId = null;
+              clearPollTimer();
+              stopLoading();
+              renderFlash("success", payload.message || i18n.job_canceled);
               updateBrowserUrl(null, null);
               return;
             }
@@ -1166,8 +1284,93 @@
             renderFlash("error", isNetworkFailure(error) ? i18n.job_status_retrying : (error instanceof Error ? error.message : i18n.job_status_retrying));
             if (currentJobId === jobId) {
               if (loadingState.hidden || timerId === null) {
-                startLoading(0);
+                startLoading(getElapsedSeconds(), loadingStep ? loadingStep.textContent : "", currentJobStatus || "running", currentJobStatus === "running");
               }
+              schedulePoll(Math.max(jobPollIntervalMs, 3000));
+              return;
+            }
+            stopLoading();
+          }
+        }
+
+        async function cancelCurrentJob() {
+          if (!currentJobId || !cancelButton || cancelButton.disabled) {
+            return;
+          }
+
+          const jobId = currentJobId;
+          currentJobStatus = "canceling";
+          renderFlash("success", i18n.job_canceling);
+          startLoading(getElapsedSeconds(), loadingStep ? loadingStep.textContent : "", "canceling", false);
+
+          try {
+            const response = await fetch(`/jobs/${encodeURIComponent(jobId)}/cancel`, {
+              method: "POST",
+              headers: {
+                Accept: "application/json",
+              },
+            });
+            const payload = await readJson(response);
+
+            if (response.status === 202) {
+              currentJobId = payload.job_id || jobId;
+              currentJobStatus = payload.status || "canceling";
+              if (payload.status === "canceled") {
+                clearPollTimer();
+                stopLoading();
+                currentJobId = null;
+                renderFlash("success", payload.message || i18n.job_canceled);
+                updateBrowserUrl(null, null);
+                return;
+              }
+
+              renderFlash("success", payload.message || i18n.job_canceling);
+              startLoading(
+                typeof payload.elapsed_seconds === "number" ? payload.elapsed_seconds : getElapsedSeconds(),
+                payload.step || "",
+                currentJobStatus,
+                Boolean(payload.can_cancel),
+              );
+              updateBrowserUrl(currentJobId, null);
+              schedulePoll(0);
+              return;
+            }
+
+            if (response.status === 404) {
+              currentJobId = null;
+              currentJobStatus = null;
+              clearPollTimer();
+              stopLoading();
+              renderFlash("error", payload.error || i18n.job_not_found);
+              updateBrowserUrl(null, null);
+              return;
+            }
+
+            if (response.status === 409) {
+              currentJobStatus = payload.status || currentJobStatus;
+              renderFlash("error", payload.error || i18n.job_cancel_unavailable);
+              if (currentJobStatus === "running" || currentJobStatus === "canceling") {
+                startLoading(
+                  typeof payload.elapsed_seconds === "number" ? payload.elapsed_seconds : getElapsedSeconds(),
+                  payload.step || "",
+                  currentJobStatus,
+                  Boolean(payload.can_cancel),
+                );
+                schedulePoll(0);
+                return;
+              }
+              currentJobId = null;
+              stopLoading();
+              updateBrowserUrl(null, null);
+              return;
+            }
+
+            throw new Error(payload.error || i18n.job_cancel_unavailable);
+          } catch (error) {
+            console.error("Cancel request failed", error);
+            renderFlash("error", isNetworkFailure(error) ? i18n.network_failed : (error instanceof Error ? error.message : i18n.job_cancel_unavailable));
+            if (currentJobId === jobId) {
+              startLoading(getElapsedSeconds(), loadingStep ? loadingStep.textContent : "", currentJobStatus || "canceling", false);
               schedulePoll(Math.max(jobPollIntervalMs, 3000));
               return;
             }
@@ -1180,7 +1383,8 @@
           renderFlash("", "");
           clearPollTimer();
           currentJobId = null;
-          startLoading(0);
+          currentJobStatus = "running";
+          startLoading(0, "", "running", true);
 
           try {
             const response = await fetch(form.action, {
@@ -1195,7 +1399,9 @@
 
             if (response.status === 202 && payload.ok && payload.job_id) {
               currentJobId = payload.job_id;
+              currentJobStatus = payload.status || "running";
               renderFlash("success", payload.message || i18n.job_started);
+              startLoading(0, payload.step || "", currentJobStatus, Boolean(payload.can_cancel ?? true));
               updateBrowserUrl(currentJobId, null);
               schedulePoll(0);
               return;
@@ -1203,7 +1409,9 @@
 
             if (response.status === 409 && payload.job_id) {
               currentJobId = payload.job_id;
+              currentJobStatus = payload.status || "running";
               renderFlash("error", payload.error || i18n.job_running);
+              startLoading(getElapsedSeconds(), payload.step || "", currentJobStatus, Boolean(payload.can_cancel));
               updateBrowserUrl(currentJobId, null);
               schedulePoll(0);
               return;
@@ -1214,6 +1422,7 @@
             console.error("Generate request failed", error);
             clearPollTimer();
             currentJobId = null;
+            currentJobStatus = null;
             const message = error instanceof Error
               ? (isNetworkFailure(error) ? i18n.network_failed : error.message)
               : i18n.generation_failed.replace("__details__", "");
@@ -1223,8 +1432,14 @@
           }
         });
 
+        if (cancelButton) {
+          cancelButton.addEventListener("click", () => {
+            void cancelCurrentJob();
+          });
+        }
+
         if (initialJobId) {
-          startLoading(0);
+          startLoading(0, "", "running", true);
           schedulePoll(0);
         }
       })();
